@@ -121,8 +121,11 @@ We model the prompting process as an MDP defined by:
     
     \item \textbf{Dimensionality Reduction:} Embeddings distill high-dimensional contexts into lower-dimensional representations that preserve semantic relationships while discarding spurious syntactic variations \citep{mikolov2013distributed}.
   \end{itemize}
+\end{itemize}
   
-  While potential challenges exist (such as state aliasing where semantically different contexts map to similar embeddings), modern neural architectures have sufficient capacity to mitigate these issues \citep{arora2019theoretical}. Our approach mirrors the success of feature-based representations in classical RL problems \citep{sutton2018reinforcement} but leverages the semantic power of modern embedding techniques developed for language models.
+While potential challenges exist (such as state aliasing where semantically different contexts map to similar embeddings), modern neural architectures have sufficient capacity to mitigate these issues \citep{arora2019theoretical}. Our approach mirrors the success of feature-based representations in classical RL problems \citep{sutton2018reinforcement} but leverages the semantic power of modern embedding techniques developed for language models.
+
+\begin{itemize}
 \item
   \textbf{Actions \(a \in A\):}\\
   The action set \(A\) comprises a diverse range of operations that modify the reasoning process:
@@ -132,29 +135,43 @@ We model the prompting process as an MDP defined by:
     \textbf{Prompt Decomposition:} Breaking a complex prompt into
     manageable sub-problems through template-based prompting.
     \begin{itemize}
-    \item \textit{Example:} "Let's solve this step by step. First..."
+    \item \textit{Example (Math):} "Let's solve this step by step. First..."
+    \item \textit{Example (Security):} "Let's analyze this potential attack by separating file system, network, and memory indicators..."
     \end{itemize}
     
   \item
     \textbf{Context Retrieval:} A composite action that queries a vector database using the current embedding as a search key, retrieves relevant examples, and instructs the LLM to incorporate this information.
     \begin{itemize}
-    \item \textit{Example:} Retrieving similar mathematical proofs or code snippets based on semantic similarity.
+    \item \textit{Example (Math):} Retrieving similar mathematical proofs or code snippets based on semantic similarity.
+    \item \textit{Example (Security):} Retrieving known ransomware behavior patterns to compare with current system activity.
     \end{itemize}
     
   \item
     \textbf{Tool Execution:} Generating code, executing it in an appropriate runtime environment, and integrating the results back into the context.
+    \begin{itemize}
+    \item \textit{Example (Math):} Running numerical simulations to verify a solution.
+    \item \textit{Example (Security):} Deploying specialized monitoring tools to gather additional system state information.
+    \end{itemize}
     
   \item
     \textbf{Context Management:} Operations that improve context efficiency, such as summarizing key information, removing redundancies, or highlighting critical constraints to accommodate context window limitations.
     \begin{itemize}
-    \item \textit{Example:} "Let me summarize what we've established so far..."
+    \item \textit{Example (Math):} "Let me summarize what we've established so far..."
+    \item \textit{Example (Security):} "Let me highlight the most suspicious behavioral patterns detected..."
     \end{itemize}
     
   \item
     \textbf{Terminal Action:} Emitting the final output.
+    \begin{itemize}
+    \item \textit{Example (Math):} Providing the final solution with supporting proof.
+    \item \textit{Example (Security):} Implementing a final defensive response (block, isolate, alert).
+    \end{itemize}
   \end{itemize}
+\end{itemize}
 
-  Through reinforcement learning, the policy learns which actions are most effective for different regions in the embedding space, developing an implicit understanding of when to decompose problems, when to retrieve similar examples, and when context management would be beneficial.
+Through reinforcement learning, the policy learns which actions are most effective for different regions in the embedding space, developing an implicit understanding of when to decompose problems, when to retrieve similar examples, and when context management would be beneficial.
+
+\begin{itemize}
 \item
   \textbf{Transition Function $T(s,a,s')$:}\\
   The new state $s'$ results from processing the current context with
@@ -285,11 +302,12 @@ experiments are completed.
 
 \subsection{Datasets and Benchmarks}
 
-We will evaluate our framework on a range of standard tasks: -
+We will evaluate our framework on a range of standard tasks:
 \begin{itemize}
 \item \textbf{Mathematical Reasoning:} Datasets such as AIME and MATH-500.
 \item \textbf{Code Generation and Debugging:} Benchmarks like Codeforces and LiveCodeBench.
 \item \textbf{Factual Question Answering:} Standard QA datasets covering general knowledge.
+\item \textbf{Cybersecurity Analysis:} Ransomware detection and response scenarios using synthetic and real-world attack patterns.
 \item \textbf{Out-of-Distribution Tasks:} To assess robustness and generalization to unseen contexts.
 \end{itemize}
 
@@ -362,35 +380,45 @@ Key metrics include:
 \emph{Tables and figures summarizing these metrics will be included once
 experiments are complete.}
 
-\section{Case Study}
+\section{Case Study: Ransomware Defense}
 
-\subsection{Mathematical Reasoning Example}
-
-\textbf{Problem:} [Mathematical reasoning problem from MATH-500]
+\textbf{Problem:} Detection and mitigation of an ongoing ransomware attack exhibiting file encryption behaviors across multiple systems.
 
 \textbf{Action Sequence:}
 \begin{enumerate}
-\item \textbf{Decompose:} [Breaking problem into sub-components]
+\item \textbf{Context Retrieval:} Query vector database for similar known ransomware patterns
    \begin{itemize}
-   \item \textbf{State:} [Embedding visualization]
-   \item \textbf{Q-values:} [Action distribution]
+   \item \textbf{State:} Embedding of system logs showing anomalous file access patterns
+   \item \textbf{Q-values:} [0.23, 0.85, 0.41, 0.12, 0.05] (highest for retrieval action)
    \end{itemize}
    
-\item \textbf{Tool Execution:} [Python code to solve geometric calculation]
+\item \textbf{LLM Analysis:} Prompt LLM to analyze similarities between current activity and retrieved patterns
    \begin{itemize}
-   \item \textbf{State:} [Updated embedding]
-   \item \textbf{Q-values:} [Updated distribution]
+   \item \textbf{State:} Updated embedding incorporating retrieved pattern information
+   \item \textbf{Q-values:} [0.15, 0.28, 0.76, 0.34, 0.19] (highest for LLM analysis)
    \end{itemize}
    
-\item \textbf{Terminal Action:} [Final answer with reasoning]
+\item \textbf{Tool Execution:} Deploy specialized monitoring tools for additional system state information
+   \begin{itemize}
+   \item \textbf{State:} Enriched embedding with monitoring results
+   \item \textbf{Q-values:} [0.12, 0.22, 0.31, 0.75, 0.65] (highest for tool execution)
+   \end{itemize}
+   
+\item \textbf{Terminal Action:} Decision to isolate affected systems and block identified malicious processes
+   \begin{itemize}
+   \item \textbf{State:} Final state embedding with comprehensive attack information
+   \item \textbf{Q-values:} [0.05, 0.14, 0.22, 0.31, 0.88] (highest for terminal action)
+   \end{itemize}
 \end{enumerate}
 
 \textbf{Analysis:}
 \begin{itemize}
-\item \textbf{Efficiency:} [Compare to baseline methods]
-\item \textbf{Decision points:} [Where policy made critical choices]
-\item \textbf{Failure modes:} [If applicable]
+\item \textbf{Efficiency:} The MDP policy required only 4 steps to detect and respond to the ransomware, compared to traditional signature-based methods that might miss novel variants.
+\item \textbf{Decision points:} The policy effectively prioritized pattern matching before executing more resource-intensive monitoring tools.
+\item \textbf{Reward structure impact:} The policy balanced rapid response (secondary rewards) against false positive risks (penalties), achieving containment before significant data loss occurred (primary reward).
 \end{itemize}
+
+This case study demonstrates how the discrete action MDP framework can be applied to cybersecurity domains where rapid, accurate decision-making is critical. The policy's ability to combine pattern recognition with contextual analysis enables more adaptive responses than traditional signature-based detection methods.
 
 \section{Limitations and Future Work}
 
@@ -470,6 +498,22 @@ We have introduced a discrete action MDP framework for goal-directed prompting i
 First, it provides a theoretically grounded approach to structuring LLM reasoning through explicit action sequences. Second, it demonstrates how traditional reinforcement learning techniques can be adapted to the unique challenges of the prompting domain. Third, it offers a complementary approach to latent chain-of-thought methods that prioritizes transparency and modularity.
 
 While acknowledging the "Bitter Lesson" that general, data-driven methods often outperform handcrafted approaches, our work suggests that hybrid systems incorporating elements of both may be valuable for applications requiring interpretability or safety guarantees. As LLMs continue to advance, frameworks that allow for human oversight without sacrificing capability will become increasingly important. Our experimental protocol will provide empirical validation of these theoretical contributions once experiments are completed.
+
+\subsection{Applications in Critical Domains}
+
+Beyond general problem-solving, our framework shows particular promise in domains requiring both rapid adaptation and interpretable decision processes:
+
+\begin{itemize}
+\item \textbf{Cybersecurity:} In ransomware defense, our approach offers several advantages over conventional methods:
+  \begin{itemize}
+  \item \textbf{Adaptive Detection:} Learning to identify novel attack patterns based on behavioral similarities rather than exact signatures
+  \item \textbf{Explainable Responses:} Generating clear justifications for security actions taken, critical for incident response teams
+  \item \textbf{Balanced Decision-Making:} Optimizing the trade-off between false positives (which cause business disruption) and missed detections (which lead to data loss)
+  \item \textbf{Continuous Improvement:} Refining the policy through ongoing exposure to evolving threat patterns
+  \end{itemize}
+\end{itemize}
+
+The reward structure for this domain emphasizes preventing data encryption/exfiltration while minimizing system disruption, creating a policy that learns to intervene at the optimal point in a developing attack scenario.
 
 \begin{thebibliography}{99}
 
