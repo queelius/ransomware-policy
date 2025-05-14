@@ -1,0 +1,17 @@
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.egg-info/
+*.egg
+*.log
+*.coverage
+*.cover
+*.hypothesis/
+*.hypothesis/
+*.tox/
+*.mypy_cache/
+*.pytest_cache/
+*.coverage.*
