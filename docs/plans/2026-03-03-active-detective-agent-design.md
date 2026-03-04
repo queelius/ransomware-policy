@@ -1,7 +1,7 @@
 # Active Detective Agent for Ransomware Detection — Design Document
 
-**Date:** 2026-03-03
-**Status:** Draft — approved for implementation planning
+**Date:** 2026-03-03 (revised 2026-03-04)
+**Status:** Draft — approved for implementation planning (revised: RL-first)
 
 ---
 
@@ -97,7 +97,9 @@ Loop (up to k steps):
 - Target modules: q_proj, v_proj, k_proj, o_proj + MLP (gate, up, down)
 - Max context: 2048 tokens (telemetry window + investigation history must fit)
 
-## 4. Training Pipeline
+## 4. Training Pipeline (RL-First)
+
+**Decision:** Start with RL rather than supervised distillation. The agent learning its own investigation policy IS the contribution — mimicking Claude traces would make it a distillation paper.
 
 ### Phase 1: Scenario generation
 Generate 1000+ episodes with the simulator. Mix:
@@ -109,37 +111,64 @@ Generate 1000+ episodes with the simulator. Mix:
 
 Each episode produces a sequence of telemetry windows at various observability levels.
 
-### Phase 2: Expert trace generation (knowledge distillation)
-For each scenario, prompt Claude (via Claude Code Max subscription) to produce a ReAct investigation trace:
+### Phase 2: Environment (Gymnasium interface)
+
+The environment exposes a standard `reset() → step(action) → (obs, reward, done, info)` interface.
 
 ```
-Given this telemetry window and file registry state:
-[telemetry JSON]
+RansomwareDetectionEnv(gymnasium.Env):
+  observation_space: text (tokenized telemetry + accumulated observations)
+  action_space: Discrete(N) or structured (action_type + arguments)
 
-You are a SOC analyst. Investigate step by step.
-Available actions: inspect_file, check_process, fetch_history, scan_directory, DECIDE
-You have at most 5 steps. Each inspection has a cost.
+  reset():
+    - sample a scenario (benign or attack variant)
+    - generate telemetry window with configured observability
+    - return initial observation (telemetry text)
 
-Generate your investigation as:
-Thought: [reasoning]
-Action: [action with arguments]
-Observation: [what you'd expect to see]
-... repeat ...
-Thought: [final reasoning]
-Action: DECIDE(verdict, explanation)
+  step(action):
+    - if action == DECIDE(verdict):
+        reward = verdict_reward(verdict, ground_truth) - cumulative_cost
+        done = True
+    - else:
+        observation = execute_inspection(action, environment_state)
+        reward = -action_cost
+        done = (step_count >= k_max)
+        append observation to context
+    - return (observation, reward, done, info)
 ```
 
-The simulator fills in actual Observation values based on ground truth. ~5K tokens per trace, ~1000 traces, ~5M tokens total. Feasible on Max subscription.
+### Phase 3: RL training
 
-### Phase 3: Fine-tuning
-Fine-tune the small LLM on the expert traces using QLoRA. The model learns the Thought → Action pattern and when to DECIDE.
+**Algorithm:** PPO (via TRL's PPOTrainer or GRPO) on the QLoRA-adapted LLM.
 
-Training format:
-```json
-{
-  "prompt": "<|telemetry|>\n[window]\n<|investigate|>",
-  "completion": "Thought: I see an entropy spike...\nAction: inspect_file(doc_47.docx)\nObservation: {entropy: 7.9, ...}\nThought: Confirmed encryption...\nAction: DECIDE(alert, 'Active file encryption detected')"
-}
+**Reward structure:**
+- Correct verdict: +1.0
+- Wrong verdict: -1.0
+- Wrong verdict on ransomware (false negative): -2.0 (asymmetric — missed ransomware is worse)
+- Each inspection action: -0.02 to -0.05 (per action cost table)
+- Unused budget bonus: +0.01 per remaining step (rewards efficiency)
+
+**Key design choices:**
+- Freeze base model weights; only train LoRA adapters with RL
+- Start with small action space (inspect_file + DECIDE only), expand incrementally
+- Warm-start from a short supervised fine-tune on ~50 hand-written traces (optional, for stability)
+- Use GRPO (Group Relative Policy Optimization) if PPO is unstable — avoids need for a separate value model
+
+### Phase 3b: Supervised baseline (for comparison)
+Generate ~500 expert traces via Claude (knowledge distillation) and fine-tune a separate model. This becomes a baseline in the evaluation: "RL-learned policy vs. distilled policy vs. passive classifier."
+
+### Training format (RL rollout)
+```
+<|telemetry|>
+[window events]
+<|investigate|>
+Thought: [LLM generates freely]
+Action: inspect_file(doc_47.docx)
+<|observation|>
+{entropy: 7.9, size: 2048, ext: .locked, modified: 2s ago}
+Thought: [LLM generates freely]
+Action: DECIDE(alert, "Active file encryption detected")
+<|reward|> +0.96 (correct verdict +1.0, one inspection -0.02, 3 steps unused +0.02)
 ```
 
 ## 5. Evaluation Design
@@ -148,7 +177,9 @@ Training format:
 1. **Passive LR:** Logistic regression on handcrafted signal features (entropy_delta_mean, rename_rate)
 2. **Passive LLM:** Same fine-tuned model, but no inspection actions — decides from telemetry window alone
 3. **Large model zero-shot:** Claude/GPT-4 with chain-of-thought prompt on same telemetry (accuracy ceiling, impractical for real-time)
-4. **Exhaustive inspector:** Agent that always uses all k steps (no learned stopping)
+4. **Distilled agent:** Same architecture, but trained via supervised distillation on Claude-generated traces (no RL)
+5. **Exhaustive inspector:** Agent that always uses all k steps with random/heuristic inspection (no learned stopping)
+6. **Random agent:** Randomly selects inspection actions, decides randomly (sanity check)
 
 ### 5.2 Independent variables
 - **Observability level:** 10%, 30%, 50%, 70%, 90% event visibility
@@ -184,19 +215,21 @@ Training format:
 
 ## 7. Deferred to Future Work
 
-- RL policy learning (replace supervised traces with learned policy via reward signal)
 - RAG memory layer for long-horizon detection (slow sleeper over hours)
 - GNN module for structural signals (process-file-network graph)
 - Value-of-information estimation (explicit VoI scoring per action)
 - Adversarial self-play (attacker adapts to detector)
 - Real-world deployment validation
+- Multi-host correlation (agent investigates across hosts)
 
 ## 8. Risks
 
 | Risk | Mitigation |
 |---|---|
 | Simulator bias (synthetic != real) | Cross-validate across scenarios; test on public datasets; acknowledge limitation |
-| Expert traces too easy to mimic | Vary trace quality; compare against heuristic baseline |
+| RL training instability | Start with small action space (inspect_file + DECIDE), expand incrementally; try GRPO if PPO fails; optional warm-start from ~50 hand-written traces |
+| Reward hacking | Monitor for degenerate policies (e.g., always DECIDE immediately, or always exhaust budget); add diversity bonus if needed |
+| Sparse reward signal | Asymmetric rewards (false negative penalized harder); small per-step cost provides intermediate signal; consider reward shaping with intermediate detection confidence |
 | Context window overflow | Budget k and telemetry window size to stay under 2048 tokens |
-| Small model can't learn ReAct | Start with Phi-2 (2.7B) if TinyLlama (1.1B) fails; this is an empirical question |
-| Claude traces may be poor for this domain | Validate trace quality manually on 50 samples before scaling |
+| Small model can't learn ReAct-style reasoning | Start with Phi-2 (2.7B) if TinyLlama (1.1B) fails; this is an empirical question |
+| PPO + QLoRA compute cost | LoRA keeps trainable params small; use GRPO to avoid separate value model; target 12GB GPU |
