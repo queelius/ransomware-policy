@@ -1,0 +1,9 @@
+[project]
+name = "active-detective"
+version = "0.1.0"
+description = "RL-trained LLM agent for ransomware detection under partial observability"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

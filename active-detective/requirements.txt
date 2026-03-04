@@ -1,0 +1,30 @@
+# Active Detective Agent — Dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core ML ──────────────────────────────────────
+torch>=2.4.0
+transformers>=4.46.0
+datasets>=2.20.0
+accelerate>=1.0.0
+
+# ── RL training ──────────────────────────────────
+trl>=0.29.0                    # GRPOTrainer (PPOTrainer removed in 0.29)
+peft>=0.13.0                   # LoRA / QLoRA adapters
+bitsandbytes>=0.44.0           # 4-bit NF4 quantization
+unsloth>=2025.1.0              # 2x training speedup, reduced VRAM
+
+# ── Memory store (recall_memory tool) ────────────
+sentence-transformers>=3.0.0   # all-MiniLM-L6-v2 for embedding similarity
+numpy>=1.26.0
+
+# ── Evaluation ───────────────────────────────────
+scikit-learn>=1.4.0            # Passive LR baseline, metrics
+pandas>=2.2.0
+
+# ── Experiment tracking ──────────────────────────
+wandb>=0.18.0
+tensorboard>=2.17.0
+
+# ── Testing ──────────────────────────────────────
+pytest>=8.0.0
+pytest-cov>=5.0.0
