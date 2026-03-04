@@ -7,9 +7,9 @@
 
 ## 1. Thesis
 
-A small fine-tuned LLM agent that actively selects which host evidence to inspect outperforms passive classifiers under partial observability, achieving accuracy approaching large prompted models at a fraction of the inference cost.
+An LLM agent trained via reinforcement learning to actively select which host evidence to inspect outperforms passive classifiers under partial observability. The learned investigation policy distills to small models (1.7B-3B) for real-time edge deployment.
 
-**Central novelty:** Detection framed as a sequential investigation problem — the agent chooses what to look at next, rather than passively classifying a fixed telemetry window. No prior work combines active evidence-seeking with fine-tuned LLMs for ransomware detection.
+**Central novelty:** Detection framed as a sequential investigation problem — the agent chooses what to look at next, rather than passively classifying a fixed telemetry window. No prior work combines active evidence-seeking with RL-trained LLMs for ransomware detection.
 
 ## 2. Motivation
 
@@ -92,10 +92,28 @@ Loop (up to k steps):
 
 ### 3.4 Model
 
-- Base: TinyLlama-1.1B (primary) or Phi-2-2.7B (if GPU allows)
-- Fine-tuning: QLoRA (4-bit NF4, r=16, lora_alpha=32)
+**Strategy:** Start with a capable base model to prove the concept, then distill down to smaller models for edge deployment.
+
+**Primary (proof of concept):**
+- Base: **Qwen3-8B** — trained with GRPO natively, best-in-class tool use and structured action generation
+- Fine-tuning: QLoRA (4-bit NF4, r=16, lora_alpha=32) or full LoRA via Unsloth
 - Target modules: q_proj, v_proj, k_proj, o_proj + MLP (gate, up, down)
-- Max context: 2048 tokens (telemetry window + investigation history must fit)
+- Max context: 4096 tokens (Qwen3 supports 32K, but budget for training efficiency)
+- Compute: A100 80GB on Vast.ai (~$0.50/hr)
+
+**Distillation targets (post proof-of-concept):**
+- Qwen3-1.7B — smallest Qwen3 variant, tests minimum viable size
+- Qwen2.5-3B — well-studied for GRPO at smaller scale
+- TinyLlama-1.1B — original target, tests extreme compression
+
+**Distillation method:** Train the large model with RL first, then use its rollouts as supervised training data for the smaller models. This produces a natural ablation: accuracy vs. model size curve.
+
+**Paper story:** "We train an 8B model via GRPO that learns an effective investigation policy. We then distill to 1.7B-3B models and show accuracy degrades gracefully, enabling real-time edge deployment."
+
+**Alternatives considered:**
+- Qwen2.5-7B-Instruct: most-studied GRPO baseline in literature, good fallback
+- Llama-3.1-8B-Instruct: strong general reasoning, large community
+- DeepSeek-R1-distill-Qwen-7B: already RL-trained, may converge faster
 
 ## 4. Training Pipeline (RL-First)
 
@@ -139,7 +157,13 @@ RansomwareDetectionEnv(gymnasium.Env):
 
 ### Phase 3: RL training
 
-**Algorithm:** PPO (via TRL's PPOTrainer or GRPO) on the QLoRA-adapted LLM.
+**Algorithm:** GRPO (Group Relative Policy Optimization) via TRL's GRPOTrainer + Unsloth for efficiency.
+
+GRPO is preferred over PPO because:
+- No separate value model needed (saves ~50% VRAM)
+- Qwen3-8B was natively trained with GRPO — compatible by design
+- More stable than PPO for LLM RL (used by DeepSeek R1)
+- TRL's PPOTrainer is being deprecated (removed in TRL 0.29.0)
 
 **Reward structure:**
 - Correct verdict: +1.0
@@ -152,7 +176,7 @@ RansomwareDetectionEnv(gymnasium.Env):
 - Freeze base model weights; only train LoRA adapters with RL
 - Start with small action space (inspect_file + DECIDE only), expand incrementally
 - Warm-start from a short supervised fine-tune on ~50 hand-written traces (optional, for stability)
-- Use GRPO (Group Relative Policy Optimization) if PPO is unstable — avoids need for a separate value model
+- Use Unsloth for 2x training speedup and reduced VRAM
 
 ### Phase 3b: Supervised baseline (for comparison)
 Generate ~500 expert traces via Claude (knowledge distillation) and fine-tune a separate model. This becomes a baseline in the evaluation: "RL-learned policy vs. distilled policy vs. passive classifier."
@@ -199,9 +223,10 @@ Action: DECIDE(alert, "Active file encryption detected")
 
 ### 5.5 Key hypotheses to test
 - H1: Active agent > passive LLM at low observability (30-50%)
-- H2: Active agent approaches large-model accuracy at small-model cost
+- H2: RL-trained agent > distilled agent (RL learns a better policy than imitation)
 - H3: Agent learns to stop early on easy cases (efficiency)
 - H4: Agent generalizes to unseen attack scenarios better than passive classifier
+- H5: Distilled small model (1.7B-3B) retains most of the 8B agent's accuracy
 
 ## 6. Prior Art Positioning
 
@@ -215,6 +240,7 @@ Action: DECIDE(alert, "Active file encryption detected")
 
 ## 7. Deferred to Future Work
 
+- Model distillation: compress RL-trained 8B agent to 1.7B-3B for edge deployment
 - RAG memory layer for long-horizon detection (slow sleeper over hours)
 - GNN module for structural signals (process-file-network graph)
 - Value-of-information estimation (explicit VoI scoring per action)
@@ -231,5 +257,5 @@ Action: DECIDE(alert, "Active file encryption detected")
 | Reward hacking | Monitor for degenerate policies (e.g., always DECIDE immediately, or always exhaust budget); add diversity bonus if needed |
 | Sparse reward signal | Asymmetric rewards (false negative penalized harder); small per-step cost provides intermediate signal; consider reward shaping with intermediate detection confidence |
 | Context window overflow | Budget k and telemetry window size to stay under 2048 tokens |
-| Small model can't learn ReAct-style reasoning | Start with Phi-2 (2.7B) if TinyLlama (1.1B) fails; this is an empirical question |
-| PPO + QLoRA compute cost | LoRA keeps trainable params small; use GRPO to avoid separate value model; target 12GB GPU |
+| Distilled model too weak | Ablate across sizes (1.7B, 3B, 8B); report the accuracy-size Pareto frontier honestly |
+| GRPO + QLoRA compute cost | LoRA keeps trainable params small; GRPO avoids separate value model; Unsloth for 2x speedup; A100 on Vast.ai ~$0.50/hr |
