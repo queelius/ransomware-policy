@@ -249,6 +249,7 @@ Reward: +0.93 (correct: +1.0, 2 tools: -0.05, 2 steps unused: +0.02, format: -0.
 - **Observability level:** 10%, 30%, 50%, 70%, 90% event visibility
 - **Inspection budget k:** 1, 3, 5, 10
 - **Attack scenario:** per-scenario and aggregate
+- **Tool ablation:** full tool set vs. remove one tool at a time (see 5.6)
 
 ### 5.3 Dependent variables
 - Detection accuracy: precision, recall, F1 (ransomware vs benign)
@@ -267,6 +268,23 @@ Reward: +0.93 (correct: +1.0, 2 tools: -0.05, 2 steps unused: +0.02, format: -0.
 - H3: Agent learns to stop early on easy cases (efficiency)
 - H4: Agent generalizes to unseen attack scenarios better than passive classifier
 - H5: Distilled small model (1.7B-3B) retains most of the 8B agent's accuracy
+- H6: `recall_memory` provides measurable accuracy gain (memory ablation)
+
+### 5.6 Tool ablation study
+
+Remove one tool at a time and re-evaluate the trained agent (no retraining — same policy, restricted tool set). This measures each tool's marginal contribution:
+
+| Variant | Tools available | Tests |
+|---|---|---|
+| Full | inspect_file, check_process, scan_directory, recall_memory, DECIDE | Baseline |
+| −recall_memory | inspect_file, check_process, scan_directory, DECIDE | Is historical context worth the cost? |
+| −scan_directory | inspect_file, check_process, recall_memory, DECIDE | Can the agent compensate without bulk file listing? |
+| −check_process | inspect_file, scan_directory, recall_memory, DECIDE | How much does process context matter? |
+| inspect_file only | inspect_file, DECIDE | Minimum viable tool set |
+
+**What to measure:** accuracy drop, mean steps used, and whether the agent's investigation strategy shifts (e.g., does it compensate for missing `recall_memory` by using more `inspect_file` calls?).
+
+**Optional extension:** Retrain with each ablated tool set and compare against the restricted-but-not-retrained variant. The gap between "same policy, fewer tools" and "retrained with fewer tools" shows how much the learned policy depends on each tool.
 
 ## 6. Prior Art Positioning
 
