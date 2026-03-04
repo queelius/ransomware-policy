@@ -1,7 +1,7 @@
 # Active Detective Agent for Ransomware Detection — Design Document
 
 **Date:** 2026-03-03 (revised 2026-03-04)
-**Status:** Draft — approved for implementation planning (revised: RL-first)
+**Status:** Draft — approved for implementation planning (revised: RL-first, RLVR, tool-call-as-text)
 
 ---
 
@@ -59,36 +59,42 @@ Event types:
 
 ### 3.3 Active Detective Agent
 
-The agent operates in a ReAct-style loop (Yao et al. 2023):
+The agent operates in a ReAct-style loop (Yao et al. 2023). Critically, **tools are invoked via text generation** — the model emits tool calls as structured tokens, and the environment executes them and injects results back into the context. No separate policy head is needed; the action space is the model's token vocabulary constrained to valid tool-call syntax.
+
+This follows the same paradigm as DeepSeek R1 and Qwen3's native tool-use training. Qwen3 already understands tool-call formatting, so the base model starts with strong tool-use priors.
 
 ```
-Input: telemetry_window + accumulated_observations
+Input: system_prompt + telemetry_window
 
 Loop (up to k steps):
-  LLM generates: Thought (reasoning about what's known/unknown)
-  LLM generates: Action (from action space)
-  Environment returns: Observation (result of action)
-  Append observation to context
+  LLM generates:  <think>reasoning about what's known/unknown</think>
+  LLM generates:  <tool_call>tool_name(args)</tool_call>
+  Environment:    <tool_result>{structured JSON response}</tool_result>
+  (result injected back into context)
 
-  If Action == DECIDE:
+  If tool_call == DECIDE:
     Break — emit verdict + explanation
 ```
 
-**Action space:**
+**Tool set:**
 
-| Action | Cost | Returns |
+| Tool | Cost | Returns |
 |---|---|---|
 | `inspect_file(path)` | -0.02 | entropy, size, extension, modified_ts, content_type |
 | `check_process(pid)` | -0.02 | full command line, parent process, child PIDs |
-| `fetch_history(t)` | -0.03 | telemetry window from t steps ago |
 | `scan_directory(path)` | -0.05 | list of files with metadata summaries |
+| `recall_memory(query)` | -0.03 | top-k relevant historical telemetry windows (RAG retrieval) |
 | `DECIDE(verdict, explanation)` | 0 | terminal action — ends investigation |
+
+**Note on `recall_memory`:** Rather than hardcoding a RAG layer, memory retrieval is exposed as a tool the agent can learn to use. The RL training discovers *when* historical context is worth the cost. Backed by a simple embedding-similarity store over past telemetry windows.
 
 **Verdicts:** ignore, monitor, alert, quarantine, block
 
 **Budget:** k_max = 5 (default). Ablate with k = 1, 3, 5, 10.
 
 **Stopping:** DECIDE is available at every step. Agent is rewarded for stopping early when confident (lower cumulative action cost).
+
+**Implementation note:** During training, tool calls are parsed from the model's text output via string matching (or Qwen3's native tool-call format). During deployment, the same tools could be exposed as MCP servers for integration with real EDR systems, but for the paper the simulator handles tool execution directly.
 
 ### 3.4 Model
 
@@ -115,9 +121,11 @@ Loop (up to k steps):
 - Llama-3.1-8B-Instruct: strong general reasoning, large community
 - DeepSeek-R1-distill-Qwen-7B: already RL-trained, may converge faster
 
-## 4. Training Pipeline (RL-First)
+## 4. Training Pipeline (RLVR — Reinforcement Learning with Verifiable Rewards)
 
 **Decision:** Start with RL rather than supervised distillation. The agent learning its own investigation policy IS the contribution — mimicking Claude traces would make it a distillation paper.
+
+**Paradigm:** RLVR (Reinforcement Learning with Verifiable Rewards), following the DeepSeek R1 approach. The simulator provides ground truth, so rewards are verifiable — no reward model needed. The model generates tool calls as text, the environment executes them, and the final verdict is checked against ground truth for a binary correct/incorrect signal.
 
 ### Phase 1: Scenario generation
 Generate 1000+ episodes with the simulator. Mix:
@@ -127,35 +135,46 @@ Generate 1000+ episodes with the simulator. Mix:
 - 15% exfil-first
 - 10% semantic shuffle
 
-Each episode produces a sequence of telemetry windows at various observability levels.
+Each episode produces a sequence of telemetry windows at various observability levels. Additionally, build a simple embedding-similarity memory store over past windows for the `recall_memory` tool.
 
-### Phase 2: Environment (Gymnasium interface)
+### Phase 2: Environment (tool-execution loop)
 
-The environment exposes a standard `reset() → step(action) → (obs, reward, done, info)` interface.
+The environment is a tool-execution harness that wraps the simulator. It is NOT a traditional Gymnasium env with discrete action spaces — instead, it operates on the model's text output, parsing tool calls and injecting tool results.
 
 ```
-RansomwareDetectionEnv(gymnasium.Env):
-  observation_space: text (tokenized telemetry + accumulated observations)
-  action_space: Discrete(N) or structured (action_type + arguments)
+RansomwareDetectionEnv:
 
   reset():
     - sample a scenario (benign or attack variant)
     - generate telemetry window with configured observability
-    - return initial observation (telemetry text)
+    - populate file registry and process table
+    - initialize memory store with historical windows
+    - return system_prompt + telemetry_window as text
 
-  step(action):
-    - if action == DECIDE(verdict):
-        reward = verdict_reward(verdict, ground_truth) - cumulative_cost
-        done = True
-    - else:
-        observation = execute_inspection(action, environment_state)
-        reward = -action_cost
-        done = (step_count >= k_max)
-        append observation to context
-    - return (observation, reward, done, info)
+  execute_rollout(model):
+    - model generates text (thinking + tool calls)
+    - on each <tool_call>:
+        parse tool name and arguments
+        execute against simulator state (file registry, process table, memory store)
+        inject <tool_result> into context
+        accumulate action cost
+    - on <tool_call>DECIDE(verdict, explanation)</tool_call>:
+        check verdict against ground truth
+        compute final reward
+        return rollout text + reward
+
+  reward(verdict, ground_truth, costs):
+    - correct verdict:    +1.0
+    - wrong verdict:      -1.0
+    - false negative:     -2.0 (missed ransomware is worse than false alarm)
+    - action costs:       sum of per-tool costs (see tool table)
+    - efficiency bonus:   +0.01 per unused budget step
+    - format reward:      +0.1 if output follows expected tool-call format
 ```
 
-### Phase 3: RL training
+This design follows the RLVR pattern: the environment is a verifier, not a reward model. The reward function is deterministic and rule-based.
+
+### Phase 3: RL training (GRPO)
 
 **Algorithm:** GRPO (Group Relative Policy Optimization) via TRL's GRPOTrainer + Unsloth for efficiency.
 
@@ -165,34 +184,55 @@ GRPO is preferred over PPO because:
 - More stable than PPO for LLM RL (used by DeepSeek R1)
 - TRL's PPOTrainer is being deprecated (removed in TRL 0.29.0)
 
-**Reward structure:**
-- Correct verdict: +1.0
-- Wrong verdict: -1.0
-- Wrong verdict on ransomware (false negative): -2.0 (asymmetric — missed ransomware is worse)
-- Each inspection action: -0.02 to -0.05 (per action cost table)
-- Unused budget bonus: +0.01 per remaining step (rewards efficiency)
+**GRPO training loop:**
+1. For each batch, sample N scenarios from the simulator
+2. For each scenario, generate G rollouts (group size, e.g., G=4) from the current policy
+3. Each rollout: model generates thinking + tool calls → environment executes → reward computed
+4. Rank rollouts within each group by reward
+5. Update policy toward higher-reward rollouts using GRPO's relative advantage
 
 **Key design choices:**
 - Freeze base model weights; only train LoRA adapters with RL
-- Start with small action space (inspect_file + DECIDE only), expand incrementally
+- Start with small tool set (`inspect_file` + `DECIDE` only), expand incrementally to full set
 - Warm-start from a short supervised fine-tune on ~50 hand-written traces (optional, for stability)
 - Use Unsloth for 2x training speedup and reduced VRAM
+- Group size G=4 (each scenario gets 4 rollouts for relative ranking)
 
 ### Phase 3b: Supervised baseline (for comparison)
 Generate ~500 expert traces via Claude (knowledge distillation) and fine-tune a separate model. This becomes a baseline in the evaluation: "RL-learned policy vs. distilled policy vs. passive classifier."
 
-### Training format (RL rollout)
+### Phase 4: Validation on real ransomware (optional, strengthens paper)
+Run 10-20 real ransomware samples in a sandboxed VM, capture Sysmon logs, project into JSONL schema, and evaluate the trained agent. Train on synthetic, validate on real — best of both worlds.
+
+### Training format (GRPO rollout)
 ```
+<|system|>
+You are a ransomware detection agent. You will receive host telemetry
+and can use tools to investigate. When ready, call DECIDE with your verdict.
+Available tools: inspect_file, check_process, scan_directory, recall_memory, DECIDE
+
 <|telemetry|>
-[window events]
-<|investigate|>
-Thought: [LLM generates freely]
-Action: inspect_file(doc_47.docx)
-<|observation|>
-{entropy: 7.9, size: 2048, ext: .locked, modified: 2s ago}
-Thought: [LLM generates freely]
-Action: DECIDE(alert, "Active file encryption detected")
-<|reward|> +0.96 (correct verdict +1.0, one inspection -0.02, 3 steps unused +0.02)
+[window events — partial observability applied]
+
+<think>I see 3 file metadata events with entropy increases on .docx files
+in C:/Users/A/Documents/. This could be encryption. Let me inspect one.</think>
+<tool_call>inspect_file("C:/Users/A/Documents/report_12.docx")</tool_call>
+<tool_result>{"entropy": 7.92, "size": 2048, "extension": ".docx.locked",
+"modified_ts": "2s ago", "content_type": "doc"}</tool_result>
+
+<think>Entropy 7.92 and extension changed to .locked confirms encryption.
+Let me check if this pattern extends to other directories.</think>
+<tool_call>recall_memory("entropy spike file encryption")</tool_call>
+<tool_result>{"matches": [{"window": "t-2", "summary": "3 files in C:/Users/A/Desktop
+showed entropy increase from 3.1 to 7.8"}]}</tool_result>
+
+<think>Historical pattern confirms this is not isolated. Active encryption
+across multiple directories. High confidence — deciding now.</think>
+<tool_call>DECIDE("quarantine", "Active ransomware encryption detected across
+multiple directories. File entropy >7.8 with .locked extension changes.
+Historical pattern confirms spread over last 2 windows.")</tool_call>
+
+Reward: +0.93 (correct: +1.0, 2 tools: -0.05, 2 steps unused: +0.02, format: -0.04)
 ```
 
 ## 5. Evaluation Design
@@ -233,29 +273,32 @@ Action: DECIDE(alert, "Active file encryption detected")
 **Closest competing work:**
 - LogBERT (Guo et al. 2021): Masked log-key prediction. Similar MLM objective but no active investigation, no attack-phase labels, no action selection.
 - LLMLA (Ferrag et al. 2023): LLMs on security logs. Network-flow only, no POMDP framing, no active evidence gathering.
+- DeepSeek R1 (DeepSeek 2025): RLVR paradigm — RL with verifiable rewards, no reward model. We adopt this training paradigm but apply it to a domain-specific tool-use agent rather than general reasoning.
+- Qwen3 (Qwen Team 2025): Native GRPO training with tool-call generation. We build on Qwen3's tool-use priors rather than training tool-call formatting from scratch.
 
-**Differentiation:** No prior work combines (a) fine-tuned small LLM, (b) active evidence-seeking actions, (c) host-behavioral telemetry, (d) partial observability evaluation. Each component exists; the combination and the "active detective" framing are novel.
+**Differentiation:** No prior work combines (a) RL-trained LLM agent, (b) active evidence-seeking via tool calls, (c) host-behavioral telemetry, (d) partial observability evaluation, (e) verifiable rewards from a simulator. Each component exists; the combination and the "active detective" framing are novel.
 
-**Must cite:** LogBERT, LLMLA, ReAct, QLoRA, MITRE ATT&CK, Kaelbling et al. 1998 (POMDP), Murphy 2002 (DBN).
+**Must cite:** LogBERT, LLMLA, DeepSeek R1, GRPO, ReAct (Yao et al. 2023), QLoRA, MITRE ATT&CK, Kaelbling et al. 1998 (POMDP), Murphy 2002 (DBN), Qwen3.
 
 ## 7. Deferred to Future Work
 
 - Model distillation: compress RL-trained 8B agent to 1.7B-3B for edge deployment
-- RAG memory layer for long-horizon detection (slow sleeper over hours)
 - GNN module for structural signals (process-file-network graph)
 - Value-of-information estimation (explicit VoI scoring per action)
 - Adversarial self-play (attacker adapts to detector)
 - Real-world deployment validation
 - Multi-host correlation (agent investigates across hosts)
+- MCP server integration for real EDR tool execution (production deployment)
 
 ## 8. Risks
 
 | Risk | Mitigation |
 |---|---|
-| Simulator bias (synthetic != real) | Cross-validate across scenarios; test on public datasets; acknowledge limitation |
-| RL training instability | Start with small action space (inspect_file + DECIDE), expand incrementally; try GRPO if PPO fails; optional warm-start from ~50 hand-written traces |
+| Simulator bias (synthetic != real) | Cross-validate across scenarios; test on public datasets; optional Phase 4 real ransomware validation; acknowledge limitation |
+| RL training instability | Start with small action space (inspect_file + DECIDE), expand incrementally; optional warm-start from ~50 hand-written traces; GRPO is more stable than PPO for LLM RL |
 | Reward hacking | Monitor for degenerate policies (e.g., always DECIDE immediately, or always exhaust budget); add diversity bonus if needed |
-| Sparse reward signal | Asymmetric rewards (false negative penalized harder); small per-step cost provides intermediate signal; consider reward shaping with intermediate detection confidence |
-| Context window overflow | Budget k and telemetry window size to stay under 2048 tokens |
+| Sparse reward signal | Asymmetric rewards (false negative penalized harder); small per-step cost provides intermediate signal; format reward for well-formed tool calls |
+| Tool-call parsing failures | Qwen3 has native tool-call format priors; format reward (+0.1) incentivizes correct syntax; fallback to string matching if structured parsing fails |
+| Context window overflow | Budget k and telemetry window size to stay under 4096 tokens; Qwen3 supports 32K natively |
 | Distilled model too weak | Ablate across sizes (1.7B, 3B, 8B); report the accuracy-size Pareto frontier honestly |
 | GRPO + QLoRA compute cost | LoRA keeps trainable params small; GRPO avoids separate value model; Unsloth for 2x speedup; A100 on Vast.ai ~$0.50/hr |
