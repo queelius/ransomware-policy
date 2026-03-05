@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Research project exploring ransomware detection using LLMs, structured as three progressively sophisticated approaches:
+Research project exploring ransomware detection using LLMs, structured as four approaches:
 
 1. **Prompting-only** (`prompting-only/`): Zero-shot, few-shot, and chain-of-thought prompting against pre-trained LLMs (baseline, no training needed)
 2. **Fine-tuning** (`fine-tuning/`): QLoRA fine-tuning of small LLMs (TinyLlama, Phi-2, Mistral) on synthetic telemetry with expert annotations
-3. **RL policy** (`rl-policy/`): Reinforcement learning policy head for action selection (future work, not yet implemented)
+3. **Active Detective Agent** (`active-detective/`): RL-trained agent (GRPO) that actively investigates via tool calls — the main research contribution. See below.
+4. **RL policy** (`rl-policy/`): Reinforcement learning policy head for action selection (earlier concept, superseded by active-detective)
 
 The core theoretical idea: treat detection as an implicit Dynamic Bayes Net where the LLM's latent embedding serves as hidden state. The model learns to predict both observable telemetry and expert explanations via multi-task loss (telemetry MLM + QA generation + action classification).
 
@@ -88,15 +89,55 @@ python prompts/detection_prompts.py  # runs demo with sample telemetry window
 - **Multi-layer prediction**: The model is trained to output 7 layers — state, meaning, indicators, next events, timeline, risk, and recommended actions — all in a single structured completion.
 - Detection actions vocabulary: `ignore`, `monitor`, `alert`, `quarantine`, `block`.
 
+## Active Detective Agent (`active-detective/`)
+
+The main research contribution. An LLM agent trained via GRPO to actively investigate ransomware by selecting which host evidence to examine.
+
+### Architecture
+- **Simulator** (`simulator/`): FileRegistry + ProcessTable host state, 5 benign generators, 4 attack generators (blitz, sleeper, exfil-first, semantic shuffle), observability filter
+- **Tools** (`tools/`): inspect_file, check_process, scan_directory, recall_memory (embedding-similarity store), dual-format parser (Qwen3 JSON + function-call syntax)
+- **Environment** (`environment/`): RansomwareDetectionEnv (tool-execution harness), RLVR reward (asymmetric: FN=-2, FP=-1, correct=+1)
+- **Training** (`training/`): GRPO via TRL's `environment_factory` for real multi-step rollouts, QLoRA (4-bit NF4, r=16), Qwen3-8B base
+- **Evaluation** (`evaluation/`): Detection metrics, baselines (Random/Exhaustive/Heuristic), tool ablation sweep
+
+### Commands
+```bash
+cd active-detective
+
+# Run tests (276 tests)
+python -m pytest tests/ -q
+
+# Run specific test file
+python -m pytest tests/test_env.py -v
+
+# Generate training scenarios
+python -c "from training.scenarios import generate_training_scenarios, save_scenarios; save_scenarios(generate_training_scenarios(1000), 'scenarios.jsonl')"
+
+# Train (requires GPU + trl + transformers>=5.2.0)
+accelerate launch -m training.train_grpo --model Qwen/Qwen3-8B --output-dir ./checkpoints --n-episodes 500 --group-size 4
+```
+
+### Design doc
+Full design: `docs/plans/2026-03-03-active-detective-agent-design.md`
+
 ## Current status and next priorities
 
-- Telemetry simulator works but only covers simple benign (Office/backup) and blitz encryptor behaviors
-- Fine-tuning pipeline is structurally complete but not extensively tested (needs GPU)
-- Next priorities per `code/plan.md`: slow-sleeper ransomware, diversified goodware generators, retrieval-augmented memory (RAG) for long-horizon detection, parameter sweep for window sizes
-- The `rl-policy/` approach is documented in `reward_signlas.md` but has no implementation yet
+- Active Detective: Full pipeline implemented (276 tests), ready for GPU training
+- Next: run GRPO training on Vast.ai A100, evaluate against baselines, tool ablation study
+- Fine-tuning pipeline (older approach) structurally complete but superseded by active-detective
 
 ## Papers and references
 
-- `llm-policy.tex` / `policy-model.tex`: LaTeX source for the theoretical framework paper
-- `prop-ransomeware.tex`: Research proposal
+- `prop-ransomeware.tex`: Summer research proposal for adaptive AI ransomware defense as MDP
 - `code/plan.md`: Detailed Stage I implementation plan with milestones
+- `docs/grad-report-alex-srdc.pdf`: Review of a ransomware paper using a small pretrained model (useful reference)
+- `docs/early-research/`: Brainstorming notes, proposals, and theoretical groundwork from the early research phase. Key files:
+  - `notes.md` — Most detailed exploration of LM, DNN, RL approaches and the "reverse problem" idea for synthetic data
+  - `research-outline.md` — Comprehensive outline (sequence prediction, tools, experimental plan)
+  - `prob_def_fuj.md` — Dr. Fujinoki's original problem definition
+  - `report.md` — Report on predictive models for ransomware detection
+
+## Related repositories
+
+- `../on-beat-backup`: Published On-Beat Backups paper (backup-based defense with Bloom filters/fake fields — different research track, co-authored with Fujinoki)
+- `../llm-policy`: LLM orchestration papers (MDP framework for goal-directed prompting + DINO-LLM hybrid cognitive architecture — general-purpose, not ransomware-specific)
