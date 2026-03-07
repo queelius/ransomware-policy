@@ -4,21 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Research project exploring ransomware detection using LLMs, structured as four approaches:
+Research project exploring ransomware detection using LLMs, structured as three approaches:
 
 1. **Prompting-only** (`prompting-only/`): Zero-shot, few-shot, and chain-of-thought prompting against pre-trained LLMs (baseline, no training needed)
 2. **Fine-tuning** (`fine-tuning/`): QLoRA fine-tuning of small LLMs (TinyLlama, Phi-2, Mistral) on synthetic telemetry with expert annotations
 3. **Active Detective Agent** (`active-detective/`): RL-trained agent (GRPO) that actively investigates via tool calls — the main research contribution. See below.
-4. **RL policy** (`rl-policy/`): Reinforcement learning policy head for action selection (earlier concept, superseded by active-detective)
 
 The core theoretical idea: treat detection as an implicit Dynamic Bayes Net where the LLM's latent embedding serves as hidden state. The model learns to predict both observable telemetry and expert explanations via multi-task loss (telemetry MLM + QA generation + action classification).
 
 ## Architecture
 
-### Two telemetry codebases (historical)
+### Telemetry generators
 
-- `code/` — Original v0.1 scripts: `telemetry-sim.py` (simple benign/blitz-encryptor generators), `telemetry-concat.py` (k-stack window builder), `finetune_llm.py` (basic LoRA fine-tuning). These use simple dataclasses (`ProcessEvent`, `FileEvent`, `NetEvent`) and produce flat JSONL.
-- `prompting-only/telemetry/` — More developed generators with latent state tracking (`LatentState` enum with 12 attack phases), partial observability simulation, expert annotations (`ExpertAnnotation`), and Atomic Red Team integration. `comprehensive_telemetry_gen.py` is the primary generator here.
+`prompting-only/telemetry/` contains the telemetry generation pipeline with latent state tracking (`LatentState` enum with 12 attack phases), partial observability simulation, expert annotations (`ExpertAnnotation`), and Atomic Red Team integration. `comprehensive_telemetry_gen.py` is the primary generator.
 
 The `fine-tuning/scripts/prepare_training_data.py` imports from the prompting-only telemetry generators (via `sys.path.append('./telemetry')`), so run fine-tuning scripts from the `fine-tuning/` or `prompting-only/` directory context.
 
@@ -33,22 +31,18 @@ The `fine-tuning/scripts/prepare_training_data.py` imports from the prompting-on
 
 ### Prompt format conventions
 
-Training prompts use custom tokens: `<|system|>`, `<|telemetry|>`, `<|task|>`, `<|answer|>`, `<|analysis|>`. The fine-tuning scripts in `code/finetune_llm.py` and `fine-tuning/scripts/finetune_ransomware_llm.py` use slightly different prompt templates — check the `build_prompt` / `_format_prompt` functions.
+Training prompts use custom tokens: `<|system|>`, `<|telemetry|>`, `<|task|>`, `<|answer|>`, `<|analysis|>`. Check the `_format_prompt` function in `fine-tuning/scripts/finetune_ransomware_llm.py`.
 
 ## Development Commands
 
 ### Install dependencies
 ```bash
-pip install -r code/requirements.txt                    # Original pipeline (pinned versions)
-pip install -r fine-tuning/scripts/requirements_finetune.txt  # Fine-tuning (flexible versions)
+pip install -r fine-tuning/scripts/requirements_finetune.txt  # Fine-tuning
 ```
 
 ### Generate telemetry data
 
 ```bash
-# Original simple generator
-python code/telemetry-sim.py --out dataset.jsonl --episodes 5000 --window 120 --stride 30 --ransomware-p 0.35 --seed 42
-
 # Comprehensive generator with latent states (run from prompting-only/)
 cd prompting-only
 python telemetry/comprehensive_telemetry_gen.py
@@ -70,9 +64,6 @@ python scripts/prepare_training_data.py --sequences 100 --output train.jsonl
 
 # Fine-tune (model sizes: tiny=4GB, small=6GB, medium=12GB)
 python scripts/finetune_ransomware_llm.py --model tiny --train-data train.jsonl --epochs 3
-
-# Original fine-tuning script (simpler, from code/)
-python code/finetune_llm.py --data dataset.jsonl --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 --output ft_lora_out --epochs 3 --batch 2
 ```
 
 ### Test prompting strategies
@@ -94,11 +85,11 @@ python prompts/detection_prompts.py  # runs demo with sample telemetry window
 The main research contribution. An LLM agent trained via GRPO to actively investigate ransomware by selecting which host evidence to examine.
 
 ### Architecture
-- **Simulator** (`simulator/`): FileRegistry + ProcessTable host state, 5 benign generators, 4 attack generators (blitz, sleeper, exfil-first, semantic shuffle), observability filter
-- **Tools** (`tools/`): inspect_file, check_process, scan_directory, recall_memory (embedding-similarity store), dual-format parser (Qwen3 JSON + function-call syntax)
-- **Environment** (`environment/`): RansomwareDetectionEnv (tool-execution harness), RLVR reward (asymmetric: FN=-2, FP=-1, correct=+1)
+- **Simulator** (`simulator/`): HostState with FileRegistry (mutable filesystem + contents) + ProcessTable (processes + handles/modules), 5 benign generators, 4 attack generators (blitz, sleeper, exfil-first, semantic shuffle), observability filter
+- **Tools** (`tools/`): inspect_file, check_process, scan_directory, list_connections, inspect_connection, query_registry, list_process_handles, query_event_log, read_file_sample, recall_memory (embedding-similarity store), DECIDE; dual-format parser (Qwen3 JSON + function-call syntax)
+- **Environment** (`environment/`): RansomwareDetectionEnv (tool-execution harness), RLVR reward (asymmetric: FN=-2, FP=-1, correct=+1), budget enforcement and cost accumulation
 - **Training** (`training/`): GRPO via TRL's `environment_factory` for real multi-step rollouts, QLoRA (4-bit NF4, r=16), Qwen3-8B base
-- **Evaluation** (`evaluation/`): Detection metrics, baselines (Random/Exhaustive/Heuristic), tool ablation sweep
+- **Evaluation** (`evaluation/`): Detection metrics, baselines (Random/Exhaustive/Heuristic), tool ablation sweep, Pareto analysis
 
 ### Commands
 ```bash
@@ -118,7 +109,7 @@ accelerate launch -m training.train_grpo --model Qwen/Qwen3-8B --output-dir ./ch
 ```
 
 ### Design doc
-Full design: `docs/plans/2026-03-03-active-detective-agent-design.md`
+Full design: `docs/plans/2026-03-05-active-detective-system-design.md`
 
 ## Current status and next priorities
 
@@ -128,8 +119,7 @@ Full design: `docs/plans/2026-03-03-active-detective-agent-design.md`
 
 ## Papers and references
 
-- `prop-ransomeware.tex`: Summer research proposal for adaptive AI ransomware defense as MDP
-- `code/plan.md`: Detailed Stage I implementation plan with milestones
+- `docs/prop-ransomeware.tex`: Summer research proposal for adaptive AI ransomware defense as MDP
 - `docs/grad-report-alex-srdc.pdf`: Review of a ransomware paper using a small pretrained model (useful reference)
 - `docs/early-research/`: Brainstorming notes, proposals, and theoretical groundwork from the early research phase. Key files:
   - `notes.md` — Most detailed exploration of LM, DNN, RL approaches and the "reverse problem" idea for synthetic data
