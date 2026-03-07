@@ -196,6 +196,29 @@ class FileRegistry:
     def unencrypted_files(self) -> list[FileRecord]:
         return [r for r in self._files.values() if not r.is_encrypted]
 
+    def read_file_sample(
+        self,
+        path: str,
+        offset: int = 0,
+        length: int = 256,
+    ) -> bytes | None:
+        """Read a sample of file contents (if available).
+
+        Returns None if the file has no contents set.
+        """
+        record = self._files.get(path)
+        if record is None or record.contents is None:
+            return None
+        return record.contents[offset:offset + length]
+
+    def modify_contents(self, path: str, new_bytes: bytes) -> FileRecord | None:
+        """Replace file contents."""
+        record = self._files.get(path)
+        if record is None:
+            return None
+        record.contents = new_bytes
+        return record
+
     def seed_filesystem(
         self,
         rng: np.random.RandomState,
@@ -291,6 +314,55 @@ class ProcessTable:
     def all_pids(self) -> list[int]:
         return list(self._processes.keys())
 
+    def open_file_handle(self, pid: int, path: str) -> bool:
+        """Record that a process has an open file handle."""
+        record = self._processes.get(pid)
+        if record is None:
+            return False
+        if path not in record.open_file_handles:
+            record.open_file_handles.append(path)
+        return True
+
+    def close_file_handle(self, pid: int, path: str) -> bool:
+        """Remove an open file handle from a process."""
+        record = self._processes.get(pid)
+        if record is None:
+            return False
+        if path in record.open_file_handles:
+            record.open_file_handles.remove(path)
+            return True
+        return False
+
+    def load_module(self, pid: int, module: str) -> bool:
+        """Record that a process loaded a module/DLL."""
+        record = self._processes.get(pid)
+        if record is None:
+            return False
+        if module not in record.loaded_modules:
+            record.loaded_modules.append(module)
+        return True
+
+    def inject_module(self, pid: int, module: str) -> bool:
+        """Simulate DLL injection (same as load_module, distinct intent)."""
+        return self.load_module(pid, module)
+
+    def set_integrity(
+        self,
+        pid: int,
+        level: str = "High",
+        elevated: bool = False,
+        user: str | None = None,
+    ) -> bool:
+        """Set a process's integrity level and elevation status."""
+        record = self._processes.get(pid)
+        if record is None:
+            return False
+        record.integrity_level = level
+        record.is_elevated = elevated
+        if user is not None:
+            record.user = user
+        return True
+
     def seed_processes(self, now: datetime) -> None:
         """Populate with typical background processes."""
         base_procs = [
@@ -309,11 +381,19 @@ class ProcessTable:
         system = ProcessRecord(
             pid=4, name="System", parent_pid=0,
             command_line="System", start_time=now,
+            user="SYSTEM", integrity_level="System", is_elevated=True,
+            loaded_modules=["ntdll.dll", "kernel32.dll"],
         )
         self._processes[4] = system
 
         for name, parent_pid, cmd in base_procs[1:]:
-            self.spawn_process(name, parent_pid, cmd, now)
+            proc = self.spawn_process(name, parent_pid, cmd, now)
+            # Set typical forensic fields for system processes
+            proc.user = "SYSTEM"
+            proc.integrity_level = "System"
+            proc.is_elevated = True
+            proc.loaded_modules.append("ntdll.dll")
+            proc.loaded_modules.append("kernel32.dll")
 
 
 def _random_timedelta(

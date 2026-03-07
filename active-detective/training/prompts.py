@@ -25,6 +25,30 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "recall_memory(query) — Search past telemetry windows by similarity. "
         "Returns the most relevant historical observations."
     ),
+    "list_connections": (
+        "list_connections(filter?) — List active network connections. "
+        "Returns conn_id, pid, remote address, protocol, state, bytes transferred."
+    ),
+    "inspect_connection": (
+        "inspect_connection(conn_id) — Inspect a specific network connection. "
+        "Returns full details including local port, timestamps, byte counts."
+    ),
+    "query_registry": (
+        "query_registry(key_path) — Query a Windows registry key. "
+        "Returns all values under the key, useful for detecting persistence and defense evasion."
+    ),
+    "list_process_handles": (
+        "list_process_handles(pid) — List a process's handles and security context. "
+        "Returns open file handles, network sockets, loaded modules, user, integrity level."
+    ),
+    "query_event_log": (
+        "query_event_log(source?, event_id?, since?) — Query Windows Event Log. "
+        "Returns matching entries. Useful for detecting Defender disable, log clearing, service changes."
+    ),
+    "read_file_sample": (
+        "read_file_sample(path, offset?, length?) — Read raw bytes from a file. "
+        "Returns hex-encoded sample, entropy, and magic bytes. Useful for content analysis."
+    ),
 }
 
 DECIDE_DESCRIPTION = (

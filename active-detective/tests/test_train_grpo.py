@@ -110,6 +110,49 @@ class TestDetectionEnv:
         data = json.loads(result)
         assert "error" in data
 
+    def test_list_connections(self):
+        env = DetectionEnv()
+        env.reset(scenario_data=self._make_scenario_data())
+        result = env.list_connections()
+        data = json.loads(result)
+        assert "connections" in data
+
+    def test_inspect_connection(self):
+        env = DetectionEnv()
+        env.reset(scenario_data=self._make_scenario_data())
+        result = env.inspect_connection(1)
+        data = json.loads(result)
+        assert "conn_id" in data or "error" in data
+
+    def test_query_registry(self):
+        env = DetectionEnv()
+        env.reset(scenario_data=self._make_scenario_data())
+        result = env.query_registry(
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run")
+        data = json.loads(result)
+        assert "values" in data or "error" in data
+
+    def test_list_process_handles(self):
+        env = DetectionEnv()
+        env.reset(scenario_data=self._make_scenario_data())
+        result = env.list_process_handles(4)
+        data = json.loads(result)
+        assert data["name"] == "System"
+
+    def test_query_event_log(self):
+        env = DetectionEnv()
+        env.reset(scenario_data=self._make_scenario_data())
+        result = env.query_event_log()
+        data = json.loads(result)
+        assert "entries" in data
+
+    def test_read_file_sample(self):
+        env = DetectionEnv()
+        env.reset(scenario_data=self._make_scenario_data())
+        result = env.read_file_sample("C:/nonexistent.txt")
+        data = json.loads(result)
+        assert "error" in data
+
     def test_step_counting(self):
         env = DetectionEnv()
         env.reset(scenario_data=self._make_scenario_data())
@@ -271,7 +314,7 @@ class TestDetectionReward:
 
 
 class TestFormatReward:
-    def test_well_formatted(self):
+    def test_both_thinking_and_tool_call(self):
         completions = ["<think>Analysis</think> decision made tool_call"]
         rewards = format_reward(completions)
         assert rewards[0] == 0.1  # both thinking + tool_call

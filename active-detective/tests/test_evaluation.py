@@ -275,10 +275,21 @@ class TestAblationVariants:
         assert "no_scan_directory" in ABLATION_VARIANTS
         assert "no_check_process" in ABLATION_VARIANTS
         assert "inspect_only" in ABLATION_VARIANTS
+        # New variants
+        assert "no_list_connections" in ABLATION_VARIANTS
+        assert "no_query_registry" in ABLATION_VARIANTS
+        assert "no_event_log" in ABLATION_VARIANTS
+        assert "no_process_handles" in ABLATION_VARIANTS
+        assert "no_file_sample" in ABLATION_VARIANTS
+        assert "file_tools_only" in ABLATION_VARIANTS
+        assert "network_tools_only" in ABLATION_VARIANTS
+        assert "v1_tools" in ABLATION_VARIANTS
 
     def test_full_has_all_tools(self):
         assert set(ABLATION_VARIANTS["full"]) == {
-            "inspect_file", "check_process", "scan_directory", "recall_memory"
+            "inspect_file", "check_process", "scan_directory", "recall_memory",
+            "list_connections", "inspect_connection", "query_registry",
+            "list_process_handles", "query_event_log", "read_file_sample",
         }
 
     def test_no_recall_excludes_recall(self):
@@ -287,6 +298,31 @@ class TestAblationVariants:
 
     def test_inspect_only(self):
         assert ABLATION_VARIANTS["inspect_only"] == ["inspect_file"]
+
+    def test_v1_tools(self):
+        assert set(ABLATION_VARIANTS["v1_tools"]) == {
+            "inspect_file", "check_process", "scan_directory", "recall_memory",
+        }
+
+    def test_category_variants(self):
+        assert set(ABLATION_VARIANTS["file_tools_only"]) == {
+            "inspect_file", "scan_directory", "read_file_sample",
+        }
+        assert set(ABLATION_VARIANTS["network_tools_only"]) == {
+            "list_connections", "inspect_connection",
+        }
+
+    def test_each_removal_variant_excludes_exactly_one(self):
+        removal_variants = [
+            "no_recall_memory", "no_scan_directory", "no_check_process",
+            "no_list_connections", "no_query_registry", "no_event_log",
+            "no_process_handles", "no_file_sample",
+        ]
+        full_set = set(ABLATION_VARIANTS["full"])
+        for name in removal_variants:
+            variant_set = set(ABLATION_VARIANTS[name])
+            removed = full_set - variant_set
+            assert len(removed) == 1, f"{name} removed {removed}"
 
 
 class TestRunAblationSweep:

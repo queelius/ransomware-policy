@@ -11,15 +11,17 @@ from datetime import datetime
 
 import numpy as np
 
+from simulator.host import HostState
 from simulator.models import (
+    EventLogEvent,
     FileEvent,
     GroundTruth,
     NetEvent,
     ProcessEvent,
+    RegistryEvent,
     ScenarioType,
     TelemetryEvent,
 )
-from simulator.registry import FileRegistry, ProcessTable
 from simulator import generators as gen
 
 
@@ -96,6 +98,16 @@ def format_telemetry_window(events: list[TelemetryEvent], window_start: datetime
                 f"bytes={event.bytes_transferred} proto={event.protocol} "
                 f"dir={event.direction}"
             )
+        elif isinstance(event, RegistryEvent):
+            lines.append(
+                f"[{offset_str}] REG action={event.action} "
+                f"key={event.key_path} value={event.value_name}"
+            )
+        elif isinstance(event, EventLogEvent):
+            lines.append(
+                f"[{offset_str}] EVTLOG source={event.source} "
+                f"id={event.event_id} msg=\"{event.message}\""
+            )
 
     return "\n".join(lines)
 
@@ -109,16 +121,13 @@ def generate_episode(
 ) -> Episode:
     """Generate a single episode with telemetry window.
 
-    Seeds a filesystem, runs generators for one window, applies
+    Seeds a full host state, runs generators for one window, applies
     observability filter, and returns formatted episode.
     """
     now = now or datetime(2025, 6, 15, 10, 0, 0)
 
     # Set up host state
-    registry = FileRegistry()
-    registry.seed_filesystem(rng, now)
-    ptable = ProcessTable()
-    ptable.seed_processes(now)
+    host = HostState.create(rng, now)
 
     all_events: list[TelemetryEvent] = []
     attack_phase: str | None = None
@@ -130,7 +139,7 @@ def generate_episode(
     n_benign = rng.randint(1, 3)
     chosen_benign = rng.choice(len(benign_generators), size=n_benign, replace=False)
     for idx in chosen_benign:
-        all_events.extend(benign_generators[idx](registry, ptable, rng, now))
+        all_events.extend(benign_generators[idx](host, rng))
 
     # Add attack-specific events
     if scenario_type == ScenarioType.BENIGN:
@@ -138,26 +147,22 @@ def generate_episode(
         extra = [gen.backup_operations, gen.av_scan]
         if rng.random() < 0.4:
             gen_fn = extra[rng.randint(0, len(extra))]
-            all_events.extend(gen_fn(registry, ptable, rng, now))
+            all_events.extend(gen_fn(host, rng))
         is_ransomware = False
     elif scenario_type == ScenarioType.BLITZ:
-        events, attack_phase = gen.blitz_encryptor(
-            registry, ptable, rng, now, progress=attack_progress)
+        events, attack_phase = gen.blitz_encryptor(host, rng, progress=attack_progress)
         all_events.extend(events)
         is_ransomware = True
     elif scenario_type == ScenarioType.SLEEPER:
-        events, attack_phase = gen.slow_sleeper(
-            registry, ptable, rng, now, progress=attack_progress)
+        events, attack_phase = gen.slow_sleeper(host, rng, progress=attack_progress)
         all_events.extend(events)
         is_ransomware = True
     elif scenario_type == ScenarioType.EXFIL_FIRST:
-        events, attack_phase = gen.exfil_first(
-            registry, ptable, rng, now, progress=attack_progress)
+        events, attack_phase = gen.exfil_first(host, rng, progress=attack_progress)
         all_events.extend(events)
         is_ransomware = True
     elif scenario_type == ScenarioType.SEMANTIC_SHUFFLE:
-        events, attack_phase = gen.semantic_shuffle(
-            registry, ptable, rng, now, progress=attack_progress)
+        events, attack_phase = gen.semantic_shuffle(host, rng, progress=attack_progress)
         all_events.extend(events)
         is_ransomware = True
     else:

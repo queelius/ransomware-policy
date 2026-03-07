@@ -36,7 +36,8 @@ CORRECT_REWARD = 1.0
 WRONG_REWARD = -1.0
 FALSE_NEGATIVE_REWARD = -2.0  # missed ransomware is worse than false alarm
 EFFICIENCY_BONUS_PER_STEP = 0.01
-FORMAT_REWARD = 0.1
+FORMAT_THINKING_REWARD = 0.05
+FORMAT_TOOL_CALL_REWARD = 0.05
 
 
 def compute_reward(
@@ -45,7 +46,8 @@ def compute_reward(
     cumulative_cost: float,
     steps_taken: int,
     max_steps: int,
-    well_formatted: bool,
+    has_thinking: bool,
+    has_tool_call: bool,
 ) -> RewardBreakdown:
     """Compute the RLVR reward for a completed episode.
 
@@ -61,9 +63,10 @@ def compute_reward(
         Number of tool calls the agent made (including DECIDE).
     max_steps:
         Budget cap (k_max). Used to compute efficiency bonus.
-    well_formatted:
-        Whether the model's output followed the expected tool-call format
-        throughout the rollout.
+    has_thinking:
+        Whether the model used <think>...</think> tags.
+    has_tool_call:
+        Whether the model used proper <tool_call>...</tool_call> tags.
 
     Returns
     -------
@@ -93,8 +96,12 @@ def compute_reward(
     unused_steps = max(0, max_steps - steps_taken)
     efficiency_bonus = unused_steps * EFFICIENCY_BONUS_PER_STEP
 
-    # ── Format reward ────────────────────────────────────────────────
-    format_reward = FORMAT_REWARD if well_formatted else 0.0
+    # ── Format reward (split: thinking + tool_call) ──────────────────
+    format_reward = 0.0
+    if has_thinking:
+        format_reward += FORMAT_THINKING_REWARD
+    if has_tool_call:
+        format_reward += FORMAT_TOOL_CALL_REWARD
 
     return RewardBreakdown(
         verdict_reward=verdict_reward,

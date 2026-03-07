@@ -1,33 +1,34 @@
 """Benign and attack scenario generators.
 
-Each generator mutates the FileRegistry/ProcessTable and returns
+Each generator mutates HostState sub-registries and returns
 lists of TelemetryEvents. All generators accept an rng for reproducibility.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import numpy as np
 
+from simulator.host import HostState
 from simulator.models import (
     ContentType,
+    EventLogEvent,
     FileEvent,
     NetEvent,
     ProcessEvent,
+    ProcessRecord,
+    RegistryEvent,
     TelemetryEvent,
 )
-from simulator.registry import FileRegistry, ProcessTable
 
 
 # ── Benign activity generators ───────────────────────────────────────
 
 
 def office_edits(
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     rng: np.random.RandomState,
-    now: datetime,
 ) -> list[TelemetryEvent]:
     """Simulate Office application edits: small file modifications.
 
@@ -35,7 +36,8 @@ def office_edits(
     Spawns office processes (winword.exe, excel.exe, etc.).
     """
     events: list[TelemetryEvent] = []
-    doc_files = registry.files_by_content_type(ContentType.DOC)
+    now = host.clock.now()
+    doc_files = host.files.files_by_content_type(ContentType.DOC)
     if not doc_files:
         return events
 
@@ -50,9 +52,9 @@ def office_edits(
 
     # Spawn an office process
     app_name, app_cmd = apps[rng.randint(0, len(apps))]
-    explorer = _find_process(ptable, "explorer.exe")
+    explorer = _find_process(host, "explorer.exe")
     parent_pid = explorer.pid if explorer else 4
-    proc = ptable.spawn_process(app_name, parent_pid, app_cmd, now)
+    proc = host.processes.spawn_process(app_name, parent_pid, app_cmd, now)
     events.append(ProcessEvent(
         ts=now, pid=proc.pid, name=proc.name,
         parent_pid=proc.parent_pid, command_line=proc.command_line,
@@ -67,8 +69,8 @@ def office_edits(
         size_delta = int(rng.randint(-512, 2048))
         entropy_delta = rng.uniform(-0.3, 0.3)
 
-        registry.modify_file(f.path, ts, size_delta=size_delta,
-                             entropy_delta=entropy_delta)
+        host.files.modify_file(f.path, ts, size_delta=size_delta,
+                               entropy_delta=entropy_delta)
         events.append(FileEvent(
             ts=ts, path=f.path, size_delta=size_delta,
             entropy_delta=entropy_delta, extension_change=None,
@@ -78,10 +80,8 @@ def office_edits(
 
 
 def browser_downloads(
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     rng: np.random.RandomState,
-    now: datetime,
 ) -> list[TelemetryEvent]:
     """Simulate browser downloading files.
 
@@ -89,6 +89,7 @@ def browser_downloads(
     Generates network events for the downloads.
     """
     events: list[TelemetryEvent] = []
+    now = host.clock.now()
 
     browsers = [
         ("chrome.exe", "chrome.exe --type=renderer"),
@@ -97,9 +98,9 @@ def browser_downloads(
     ]
     browser_name, browser_cmd = browsers[rng.randint(0, len(browsers))]
 
-    explorer = _find_process(ptable, "explorer.exe")
+    explorer = _find_process(host, "explorer.exe")
     parent_pid = explorer.pid if explorer else 4
-    proc = ptable.spawn_process(browser_name, parent_pid, browser_cmd, now)
+    proc = host.processes.spawn_process(browser_name, parent_pid, browser_cmd, now)
     events.append(ProcessEvent(
         ts=now, pid=proc.pid, name=proc.name,
         parent_pid=proc.parent_pid, command_line=proc.command_line,
@@ -123,7 +124,7 @@ def browser_downloads(
         entropy = rng.uniform(ent_lo, ent_hi)
         path = f"C:/Users/A/Downloads/download_{rng.randint(0, 10000):04d}{ext}"
 
-        registry.add_file(path, size, entropy, ext, ct, ts)
+        host.files.add_file(path, size, entropy, ext, ct, ts)
         events.append(FileEvent(
             ts=ts, path=path, size_delta=size,
             entropy_delta=entropy, extension_change=None,
@@ -131,8 +132,22 @@ def browser_downloads(
 
         # Network event for the download
         destinations = ["142.250.80.46", "151.101.1.69", "104.16.132.229"]
+        dest = destinations[rng.randint(0, len(destinations))]
+
+        # Open connection in the ConnectionTable
+        conn = host.connections.open_connection(
+            pid=proc.pid,
+            local_port=rng.randint(49152, 65535),
+            remote_address=dest,
+            remote_port=443,
+            protocol="tcp",
+            state="established",
+            now=ts,
+        )
+        host.connections.transfer_data(conn.conn_id, bytes_received=size)
+
         events.append(NetEvent(
-            ts=ts, destination=destinations[rng.randint(0, len(destinations))],
+            ts=ts, destination=dest,
             bytes_transferred=size, protocol="tcp", direction="inbound",
         ))
 
@@ -140,10 +155,8 @@ def browser_downloads(
 
 
 def backup_operations(
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     rng: np.random.RandomState,
-    now: datetime,
 ) -> list[TelemetryEvent]:
     """Simulate backup software scanning/copying files.
 
@@ -151,8 +164,9 @@ def backup_operations(
     Looks suspicious because it touches many files — a false positive trap.
     """
     events: list[TelemetryEvent] = []
+    now = host.clock.now()
 
-    proc = ptable.spawn_process(
+    proc = host.processes.spawn_process(
         "backup_service.exe", 4,
         "\"C:\\Program Files\\BackupSvc\\backup_service.exe\" --full-scan",
         now,
@@ -163,7 +177,7 @@ def backup_operations(
     ))
 
     # Touch many files with zero-delta reads
-    all_files = registry.unencrypted_files()
+    all_files = host.files.unencrypted_files()
     n_touch = min(rng.randint(8, 20), len(all_files))
     chosen = rng.choice(len(all_files), size=n_touch, replace=False)
 
@@ -182,8 +196,8 @@ def backup_operations(
         ts = now + timedelta(seconds=int(rng.randint(60, 115)))
         bak_path = f"C:/Users/A/Documents/backup_{rng.randint(0, 100):03d}.zip"
         bak_size = int(rng.randint(1_000_000, 50_000_000))
-        registry.add_file(bak_path, bak_size, rng.uniform(6.5, 7.5),
-                          ".zip", ContentType.ARCHIVE, ts)
+        host.files.add_file(bak_path, bak_size, rng.uniform(6.5, 7.5),
+                            ".zip", ContentType.ARCHIVE, ts)
         events.append(FileEvent(
             ts=ts, path=bak_path, size_delta=bak_size,
             entropy_delta=rng.uniform(6.5, 7.5), extension_change=None,
@@ -193,18 +207,17 @@ def backup_operations(
 
 
 def av_scan(
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     rng: np.random.RandomState,
-    now: datetime,
 ) -> list[TelemetryEvent]:
     """Simulate antivirus scan reading many files.
 
     High read rate across directories, no modifications. Process: MsMpEng.exe.
     """
     events: list[TelemetryEvent] = []
+    now = host.clock.now()
 
-    proc = ptable.spawn_process(
+    proc = host.processes.spawn_process(
         "MsMpEng.exe", 4,
         "\"C:\\ProgramData\\Microsoft\\Windows Defender\\MsMpEng.exe\"",
         now,
@@ -214,7 +227,7 @@ def av_scan(
         parent_pid=proc.parent_pid, command_line=proc.command_line,
     ))
 
-    all_files = registry.unencrypted_files()
+    all_files = host.files.unencrypted_files()
     n_scan = min(rng.randint(10, 30), len(all_files))
     chosen = rng.choice(len(all_files), size=n_scan, replace=False)
 
@@ -226,20 +239,31 @@ def av_scan(
             entropy_delta=0.0, extension_change=None,
         ))
 
+    # Log scan completion event (Event ID 1001 = scan complete)
+    scan_ts = now + timedelta(seconds=115)
+    host.event_log.log_event(
+        source="Windows Defender", event_id=1001,
+        message="Antimalware scan completed. No threats found.",
+        level="Information", timestamp=scan_ts,
+    )
+    events.append(EventLogEvent(
+        ts=scan_ts, event_id=1001, source="Windows Defender",
+        message="Antimalware scan completed. No threats found.",
+    ))
+
     return events
 
 
 def system_maintenance(
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     rng: np.random.RandomState,
-    now: datetime,
 ) -> list[TelemetryEvent]:
     """Simulate Windows system maintenance (updates, disk cleanup).
 
     Creates/deletes temp files, spawns system processes.
     """
     events: list[TelemetryEvent] = []
+    now = host.clock.now()
 
     maintenance_procs = [
         ("svchost.exe", "svchost.exe -k wusvcs"),
@@ -247,7 +271,7 @@ def system_maintenance(
         ("cleanmgr.exe", "cleanmgr.exe /autoclean"),
     ]
     name, cmd = maintenance_procs[rng.randint(0, len(maintenance_procs))]
-    proc = ptable.spawn_process(name, 4, cmd, now)
+    proc = host.processes.spawn_process(name, 4, cmd, now)
     events.append(ProcessEvent(
         ts=now, pid=proc.pid, name=proc.name,
         parent_pid=proc.parent_pid, command_line=proc.command_line,
@@ -260,8 +284,8 @@ def system_maintenance(
         ts = now + offset
         tmp_path = f"C:/Users/A/AppData/Local/Temp/tmp_{rng.randint(0, 100000):06d}.tmp"
         tmp_size = int(rng.randint(1024, 1_000_000))
-        registry.add_file(tmp_path, tmp_size, rng.uniform(2.0, 4.0),
-                          ".tmp", ContentType.CONFIG, ts)
+        host.files.add_file(tmp_path, tmp_size, rng.uniform(2.0, 4.0),
+                            ".tmp", ContentType.CONFIG, ts)
         events.append(FileEvent(
             ts=ts, path=tmp_path, size_delta=tmp_size,
             entropy_delta=rng.uniform(2.0, 4.0), extension_change=None,
@@ -274,10 +298,8 @@ def system_maintenance(
 
 
 def blitz_encryptor(
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     rng: np.random.RandomState,
-    now: datetime,
     progress: float = 0.5,
 ) -> tuple[list[TelemetryEvent], str]:
     """Fast, noisy encryptor: 20+ files/sec.
@@ -288,9 +310,10 @@ def blitz_encryptor(
     Returns (events, attack_phase).
     """
     events: list[TelemetryEvent] = []
+    now = host.clock.now()
 
     # Spawn malicious process
-    proc = ptable.spawn_process(
+    proc = host.processes.spawn_process(
         "svchost.exe", 4,  # masquerades as svchost
         "svchost.exe -k netsvcs -p -s Schedule",
         now,
@@ -300,13 +323,32 @@ def blitz_encryptor(
         parent_pid=proc.parent_pid, command_line=proc.command_line,
     ))
 
+    # Disable Windows Defender via registry (ATT&CK T1562.001)
+    host.registry.disable_defender(now)
+    events.append(RegistryEvent(
+        ts=now,
+        key_path=r"HKLM\SOFTWARE\Policies\Microsoft\Windows Defender",
+        value_name="DisableAntiSpyware",
+        action="set",
+    ))
+    # Event log entry for Defender tamper (Event ID 5001)
+    host.event_log.log_event(
+        source="Windows Defender", event_id=5001,
+        message="Real-time protection disabled", level="Warning",
+        timestamp=now,
+    )
+    events.append(EventLogEvent(
+        ts=now, event_id=5001, source="Windows Defender",
+        message="Real-time protection disabled",
+    ))
+
     if progress < 0.1:
         phase = "reconnaissance"
         # Early stage: just process spawn, minimal file activity
         return events, phase
 
     phase = "encryption"
-    targets = registry.unencrypted_files()
+    targets = host.files.unencrypted_files()
     # Scale encryption count with progress
     max_encrypt = max(1, int(len(targets) * progress))
     n_encrypt = min(rng.randint(max(1, max_encrypt // 2), max_encrypt + 1),
@@ -323,7 +365,10 @@ def blitz_encryptor(
 
         old_entropy = f.entropy
         old_ext = f.extension
-        result = registry.encrypt_file(f.path, ts, new_extension=ext, rng=rng)
+        # Open file handle before encryption
+        host.processes.open_file_handle(proc.pid, f.path)
+
+        result = host.files.encrypt_file(f.path, ts, new_extension=ext, rng=rng)
         if result is None:
             continue
 
@@ -338,7 +383,7 @@ def blitz_encryptor(
     if progress > 0.7:
         note_ts = now + timedelta(seconds=rng.randint(60, 115))
         note_path = "C:/Users/A/Desktop/README_DECRYPT.txt"
-        registry.add_file(note_path, 2048, 3.0, ".txt", ContentType.DOC, note_ts)
+        host.files.add_file(note_path, 2048, 3.0, ".txt", ContentType.DOC, note_ts)
         events.append(FileEvent(
             ts=note_ts, path=note_path, size_delta=2048,
             entropy_delta=3.0, extension_change=None,
@@ -348,10 +393,8 @@ def blitz_encryptor(
 
 
 def slow_sleeper(
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     rng: np.random.RandomState,
-    now: datetime,
     progress: float = 0.5,
 ) -> tuple[list[TelemetryEvent], str]:
     """Slow, stealthy encryptor: 1-2 files/min.
@@ -362,6 +405,7 @@ def slow_sleeper(
     Returns (events, attack_phase).
     """
     events: list[TelemetryEvent] = []
+    now = host.clock.now()
 
     # Uses legitimate-looking process name
     legit_names = [
@@ -370,17 +414,20 @@ def slow_sleeper(
         ("taskhostw.exe", "taskhostw.exe Execute"),
     ]
     name, cmd = legit_names[rng.randint(0, len(legit_names))]
-    proc = ptable.spawn_process(name, 4, cmd, now)
+    proc = host.processes.spawn_process(name, 4, cmd, now)
     events.append(ProcessEvent(
         ts=now, pid=proc.pid, name=proc.name,
         parent_pid=proc.parent_pid, command_line=proc.command_line,
     ))
 
+    # Load suspicious DLL (forensic evidence for list_process_handles)
+    host.processes.load_module(proc.pid, "beacon_x64.dll")
+
     if progress < 0.15:
         return events, "reconnaissance"
 
     phase = "encryption"
-    targets = registry.unencrypted_files()
+    targets = host.files.unencrypted_files()
     # Very few files per window — 1-2
     n_encrypt = min(rng.randint(1, 3), len(targets))
     if n_encrypt == 0:
@@ -395,7 +442,7 @@ def slow_sleeper(
 
         old_entropy = f.entropy
         old_ext = f.extension
-        result = registry.encrypt_file(f.path, ts, new_extension=".locked", rng=rng)
+        result = host.files.encrypt_file(f.path, ts, new_extension=".locked", rng=rng)
         if result is None:
             continue
 
@@ -410,10 +457,8 @@ def slow_sleeper(
 
 
 def exfil_first(
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     rng: np.random.RandomState,
-    now: datetime,
     progress: float = 0.5,
 ) -> tuple[list[TelemetryEvent], str]:
     """Data exfiltration phase followed by encryption.
@@ -424,8 +469,9 @@ def exfil_first(
     Returns (events, attack_phase).
     """
     events: list[TelemetryEvent] = []
+    now = host.clock.now()
 
-    proc = ptable.spawn_process(
+    proc = host.processes.spawn_process(
         "svchost.exe", 4,
         "svchost.exe -k NetworkService -p",
         now,
@@ -441,19 +487,35 @@ def exfil_first(
         c2_servers = ["185.142.98.12", "91.215.85.47", "45.153.241.81"]
         n_uploads = rng.randint(2, 6)
 
-        for _ in range(n_uploads):
+        for i in range(n_uploads):
             offset = timedelta(seconds=int(rng.randint(5, 110)))
             ts = now + offset
+            c2_addr = c2_servers[rng.randint(0, len(c2_servers))]
+            bytes_out = int(rng.randint(100_000, 10_000_000))
+
+            # Open connection in the ConnectionTable
+            conn = host.connections.open_connection(
+                pid=proc.pid,
+                local_port=rng.randint(49152, 65535),
+                remote_address=c2_addr,
+                remote_port=443,
+                protocol="tcp",
+                state="established",
+                now=ts,
+            )
+            host.connections.transfer_data(
+                conn.conn_id, bytes_sent=bytes_out)
+
             events.append(NetEvent(
                 ts=ts,
-                destination=c2_servers[rng.randint(0, len(c2_servers))],
-                bytes_transferred=int(rng.randint(100_000, 10_000_000)),
+                destination=c2_addr,
+                bytes_transferred=bytes_out,
                 protocol="tcp",
                 direction="outbound",
             ))
 
         # Also reads files (gathering data to exfil) but doesn't modify them
-        targets = registry.unencrypted_files()
+        targets = host.files.unencrypted_files()
         n_reads = min(rng.randint(3, 8), len(targets))
         chosen = rng.choice(len(targets), size=n_reads, replace=False)
         for idx in chosen:
@@ -469,7 +531,7 @@ def exfil_first(
     # Encryption phase
     phase = "encryption"
     enc_progress = (progress - 0.6) / 0.4  # normalize to 0-1
-    targets = registry.unencrypted_files()
+    targets = host.files.unencrypted_files()
     n_encrypt = min(
         rng.randint(5, max(6, int(len(targets) * enc_progress))),
         len(targets),
@@ -483,8 +545,8 @@ def exfil_first(
 
             old_entropy = f.entropy
             old_ext = f.extension
-            result = registry.encrypt_file(f.path, ts, new_extension=".locked",
-                                           rng=rng)
+            result = host.files.encrypt_file(f.path, ts, new_extension=".locked",
+                                             rng=rng)
             if result is None:
                 continue
             events.append(FileEvent(
@@ -498,10 +560,8 @@ def exfil_first(
 
 
 def semantic_shuffle(
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     rng: np.random.RandomState,
-    now: datetime,
     progress: float = 0.5,
 ) -> tuple[list[TelemetryEvent], str]:
     """Content manipulation without encryption indicators.
@@ -512,8 +572,9 @@ def semantic_shuffle(
     Returns (events, attack_phase).
     """
     events: list[TelemetryEvent] = []
+    now = host.clock.now()
 
-    proc = ptable.spawn_process(
+    proc = host.processes.spawn_process(
         "conhost.exe", 4,
         "conhost.exe 0x4",
         now,
@@ -527,7 +588,7 @@ def semantic_shuffle(
         return events, "reconnaissance"
 
     phase = "manipulation"
-    targets = registry.unencrypted_files()
+    targets = host.files.unencrypted_files()
     n_modify = min(rng.randint(3, max(4, int(len(targets) * progress * 0.5))),
                    len(targets))
     if n_modify == 0:
@@ -549,8 +610,8 @@ def semantic_shuffle(
         if target_entropy > 6.5:
             entropy_delta = 6.5 - f.entropy
 
-        registry.modify_file(f.path, ts, size_delta=size_delta,
-                             entropy_delta=entropy_delta)
+        host.files.modify_file(f.path, ts, size_delta=size_delta,
+                               entropy_delta=entropy_delta)
 
         # Mark as encrypted in ground truth even though it doesn't look like it
         f.is_encrypted = True
@@ -568,10 +629,10 @@ def semantic_shuffle(
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _find_process(ptable: ProcessTable, name: str) -> ProcessRecord | None:
+def _find_process(host: HostState, name: str) -> ProcessRecord | None:
     """Find the first process with the given name."""
-    for pid in ptable.all_pids():
-        p = ptable.get_process(pid)
+    for pid in host.processes.all_pids():
+        p = host.processes.get_process(pid)
         if p and p.name.lower() == name.lower():
             return p
     return None

@@ -1,10 +1,12 @@
-"""Agent investigation tools: inspect_file, check_process, scan_directory.
+"""Agent investigation tools: inspect_file, check_process, scan_directory,
+plus dispatch for all tools via execute_tool.
 
 Each tool takes simulator state and returns a JSON-serializable dict.
 """
 
 from __future__ import annotations
 
+from simulator.host import HostState
 from simulator.registry import FileRegistry, ProcessTable
 
 # Tool name → cost (negative values, subtracted from reward)
@@ -13,6 +15,12 @@ TOOL_COSTS: dict[str, float] = {
     "check_process": -0.02,
     "scan_directory": -0.05,
     "recall_memory": -0.03,
+    "list_connections": -0.03,
+    "inspect_connection": -0.03,
+    "query_registry": -0.03,
+    "list_process_handles": -0.03,
+    "query_event_log": -0.04,
+    "read_file_sample": -0.04,
     "DECIDE": 0.0,
 }
 
@@ -82,8 +90,7 @@ def scan_directory(registry: FileRegistry, path: str) -> dict:
 def execute_tool(
     tool_name: str,
     args: dict,
-    registry: FileRegistry,
-    ptable: ProcessTable,
+    host: HostState,
     memory_store: object | None = None,
 ) -> tuple[dict, float]:
     """Execute a tool by name and return (result_dict, cost).
@@ -93,26 +100,72 @@ def execute_tool(
     """
     if tool_name == "inspect_file":
         path = args.get("path", "")
-        return inspect_file(registry, path), TOOL_COSTS["inspect_file"]
+        return inspect_file(host.files, path), TOOL_COSTS["inspect_file"]
 
     elif tool_name == "check_process":
         pid = args.get("pid")
         if pid is None:
             return {"error": "Missing 'pid' argument"}, TOOL_COSTS["check_process"]
-        return check_process(ptable, int(pid)), TOOL_COSTS["check_process"]
+        return check_process(host.processes, int(pid)), TOOL_COSTS["check_process"]
 
     elif tool_name == "scan_directory":
         path = args.get("path", "")
-        return scan_directory(registry, path), TOOL_COSTS["scan_directory"]
+        return scan_directory(host.files, path), TOOL_COSTS["scan_directory"]
 
     elif tool_name == "recall_memory":
         if memory_store is None:
             return {"matches": [], "note": "Memory store not available"}, \
                    TOOL_COSTS["recall_memory"]
-        # Delegate to memory module's recall function
         query = args.get("query", "")
         from tools.memory import recall_memory
         return recall_memory(memory_store, query), TOOL_COSTS["recall_memory"]
+
+    elif tool_name == "list_connections":
+        from tools.network_tools import list_connections
+        filter_state = args.get("filter", args.get("filter_state"))
+        return list_connections(host.connections, filter_state), \
+               TOOL_COSTS["list_connections"]
+
+    elif tool_name == "inspect_connection":
+        from tools.network_tools import inspect_connection
+        conn_id = args.get("conn_id")
+        if conn_id is None:
+            return {"error": "Missing 'conn_id' argument"}, \
+                   TOOL_COSTS["inspect_connection"]
+        return inspect_connection(host.connections, int(conn_id)), \
+               TOOL_COSTS["inspect_connection"]
+
+    elif tool_name == "query_registry":
+        from tools.forensic_tools import query_registry
+        key_path = args.get("key_path", "")
+        return query_registry(host.registry, key_path), \
+               TOOL_COSTS["query_registry"]
+
+    elif tool_name == "list_process_handles":
+        from tools.forensic_tools import list_process_handles
+        pid = args.get("pid")
+        if pid is None:
+            return {"error": "Missing 'pid' argument"}, \
+                   TOOL_COSTS["list_process_handles"]
+        return list_process_handles(host.processes, int(pid)), \
+               TOOL_COSTS["list_process_handles"]
+
+    elif tool_name == "query_event_log":
+        from tools.forensic_tools import query_event_log
+        return query_event_log(
+            host.event_log,
+            source=args.get("source"),
+            event_id=args.get("event_id"),
+            since=args.get("since"),
+        ), TOOL_COSTS["query_event_log"]
+
+    elif tool_name == "read_file_sample":
+        from tools.forensic_tools import read_file_sample
+        path = args.get("path", "")
+        offset = int(args.get("offset", 0))
+        length = int(args.get("length", 256))
+        return read_file_sample(host.files, path, offset, length), \
+               TOOL_COSTS["read_file_sample"]
 
     elif tool_name == "DECIDE":
         verdict = args.get("verdict", "")

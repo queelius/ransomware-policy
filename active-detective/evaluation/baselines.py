@@ -76,8 +76,12 @@ class RandomAgent(BaselineAgent):
             if env.is_done:
                 break
 
-            tool_choice = rng.choice(["check_process", "inspect_file",
-                                       "scan_directory", "recall_memory"])
+            tool_choice = rng.choice([
+                "check_process", "inspect_file", "scan_directory",
+                "recall_memory", "list_connections", "inspect_connection",
+                "query_registry", "list_process_handles", "query_event_log",
+                "read_file_sample",
+            ])
             tools_used.append(tool_choice)
 
             if tool_choice == "check_process":
@@ -86,8 +90,20 @@ class RandomAgent(BaselineAgent):
                 call = ParsedToolCall(tool_choice, {"path": "C:/test.txt"}, "")
             elif tool_choice == "scan_directory":
                 call = ParsedToolCall(tool_choice, {"path": "C:/Users"}, "")
-            else:
+            elif tool_choice == "recall_memory":
                 call = ParsedToolCall(tool_choice, {"query": "recent activity"}, "")
+            elif tool_choice == "list_connections":
+                call = ParsedToolCall(tool_choice, {}, "")
+            elif tool_choice == "inspect_connection":
+                call = ParsedToolCall(tool_choice, {"conn_id": 1}, "")
+            elif tool_choice == "query_registry":
+                call = ParsedToolCall(tool_choice, {"key_path": r"HKLM\SOFTWARE"}, "")
+            elif tool_choice == "list_process_handles":
+                call = ParsedToolCall(tool_choice, {"pid": 4}, "")
+            elif tool_choice == "query_event_log":
+                call = ParsedToolCall(tool_choice, {}, "")
+            else:  # read_file_sample
+                call = ParsedToolCall(tool_choice, {"path": "C:/test.txt"}, "")
 
             env.step(call)
 
@@ -124,8 +140,14 @@ class ExhaustiveAgent(BaselineAgent):
     TOOL_SEQUENCE = [
         ("scan_directory", {"path": "C:/Users/A/Documents"}),
         ("check_process", {"pid": 4}),
+        ("list_connections", {}),
+        ("query_registry", {"key_path": r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"}),
+        ("query_event_log", {}),
+        ("list_process_handles", {"pid": 4}),
         ("recall_memory", {"query": "recent suspicious activity"}),
         ("inspect_file", {"path": "C:/Users/A/Documents"}),
+        ("read_file_sample", {"path": "C:/Users/A/Documents"}),
+        ("inspect_connection", {"conn_id": 1}),
     ]
 
     def __init__(self, k_max: int = 5) -> None:

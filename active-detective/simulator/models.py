@@ -39,6 +39,7 @@ class FileRecord:
     modified_at: datetime
     content_type: ContentType
     is_encrypted: bool = False
+    contents: bytes | None = None
 
     # Original values before any mutation (for delta computation)
     _original_entropy: float = field(init=False, repr=False)
@@ -73,6 +74,12 @@ class ProcessRecord:
     command_line: str
     start_time: datetime
     child_pids: list[int] = field(default_factory=list)
+    open_file_handles: list[str] = field(default_factory=list)
+    open_network_sockets: list[int] = field(default_factory=list)
+    loaded_modules: list[str] = field(default_factory=list)
+    user: str = "SYSTEM"
+    integrity_level: str = "High"
+    is_elevated: bool = False
 
 
 # ── Telemetry events (observable by the agent) ───────────────────────
@@ -120,8 +127,82 @@ class NetEvent:
     drop_probability: float = 0.0
 
 
+@dataclass
+class RegistryEvent:
+    """Observable registry modification event."""
+
+    ts: datetime
+    key_path: str
+    value_name: str
+    action: Literal["set", "delete", "create"]
+
+    event_type: Literal["registry"] = field(default="registry", init=False)
+    drop_probability: float = 0.0
+
+
+@dataclass
+class EventLogEvent:
+    """Observable Windows Event Log entry event."""
+
+    ts: datetime
+    source: str
+    event_id: int
+    message: str
+
+    event_type: Literal["eventlog"] = field(default="eventlog", init=False)
+    drop_probability: float = 0.0
+
+
+# ── Connection / Registry sub-record models ──────────────────────────
+
+
+@dataclass
+class ConnectionRecord:
+    """A network connection on the simulated host."""
+
+    conn_id: int
+    pid: int
+    local_port: int
+    remote_address: str
+    remote_port: int
+    protocol: str
+    state: Literal["established", "listening", "closed", "syn_sent"]
+    bytes_sent: int = 0
+    bytes_received: int = 0
+    opened_at: datetime = field(default_factory=lambda: datetime(2025, 1, 1))
+
+
+@dataclass
+class RegistryValue:
+    """A single value in a registry key."""
+
+    name: str
+    data: str
+    value_type: str = "REG_SZ"
+
+
+@dataclass
+class RegistryKey:
+    """A registry key with its values."""
+
+    path: str
+    values: dict[str, RegistryValue] = field(default_factory=dict)
+    modified_at: datetime = field(default_factory=lambda: datetime(2025, 1, 1))
+
+
+@dataclass
+class EventLogEntry:
+    """A stored event log entry."""
+
+    timestamp: datetime
+    source: str
+    event_id: int
+    level: str  # "Information", "Warning", "Error", "Critical"
+    message: str
+
+
 # Union type for all events
-TelemetryEvent = ProcessEvent | FileEvent | NetEvent
+TelemetryEvent = ProcessEvent | FileEvent | NetEvent | RegistryEvent | EventLogEvent
 
 
 # ── Scenario metadata ───────────────────────────────────────────────

@@ -13,7 +13,8 @@ from environment.env import RansomwareDetectionEnv, RolloutResult
 from environment.reward import (
     CORRECT_REWARD,
     FALSE_NEGATIVE_REWARD,
-    FORMAT_REWARD,
+    FORMAT_THINKING_REWARD,
+    FORMAT_TOOL_CALL_REWARD,
     WRONG_REWARD,
 )
 from simulator.models import ScenarioType
@@ -88,7 +89,7 @@ def run_mock_rollout(
 
         result = env.step_from_text(turn_text)
         if result is None:
-            # Malformed — mark format error (step_from_text already does this)
+            # No valid tool call found — has_tool_call stays False for this turn
             pass
 
     return env.finish()
@@ -112,7 +113,8 @@ class TestEndToEndPipeline:
         assert rollout.reward.verdict_reward == CORRECT_REWARD
         assert rollout.reward.total > 0
         assert not rollout.exceeded_budget
-        assert rollout.well_formatted
+        assert rollout.has_thinking
+        assert rollout.has_tool_call
 
     def test_correct_ransomware_detection(self):
         env = RansomwareDetectionEnv(max_steps=5)
@@ -155,8 +157,10 @@ class TestEndToEndPipeline:
         turns = _mock_malformed_then_decide()
         rollout = run_mock_rollout(env, turns)
 
-        assert not rollout.well_formatted
-        assert rollout.reward.format_reward == 0.0
+        assert not rollout.has_thinking  # no <think> tags
+        assert rollout.has_tool_call  # DECIDE is still a tool call
+        # Only tool_call component — no thinking
+        assert abs(rollout.reward.format_reward - FORMAT_TOOL_CALL_REWARD) < 1e-9
         # Should still reach a verdict
         assert rollout.verdict == "monitor"
 
@@ -169,7 +173,8 @@ class TestEndToEndPipeline:
         rollout = run_mock_rollout(env, turns)
 
         assert rollout.verdict == "alert"
-        assert rollout.well_formatted
+        assert rollout.has_thinking
+        assert rollout.has_tool_call
         assert len(rollout.steps) == 2
 
     def test_budget_exhaustion(self):

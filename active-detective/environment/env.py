@@ -11,12 +11,14 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from environment.reward import RewardBreakdown, compute_reward
+from simulator.host import HostState
 from simulator.models import GroundTruth, ScenarioType
 from simulator.telemetry import Episode, generate_episode
 from tools.inspection import TOOL_COSTS, VALID_VERDICTS, execute_tool
 from tools.memory import MemoryStore
 from tools.parser import (
     ParsedToolCall,
+    extract_thinking,
     format_tool_result,
     is_decide_call,
     parse_tool_call,
@@ -44,7 +46,8 @@ class RolloutResult:
     ground_truth: GroundTruth
     steps: list[StepResult]
     cumulative_cost: float
-    well_formatted: bool
+    has_thinking: bool
+    has_tool_call: bool
     reward: RewardBreakdown | None = None
     exceeded_budget: bool = False
 
@@ -76,12 +79,12 @@ class RansomwareDetectionEnv:
 
         # State set by reset()
         self._episode: Episode | None = None
-        self._registry = None
-        self._ptable = None
+        self._host: HostState | None = None
         self._memory: MemoryStore | None = None
         self._steps: list[StepResult] = []
         self._cumulative_cost: float = 0.0
-        self._well_formatted: bool = True
+        self._has_thinking: bool = False
+        self._has_tool_call: bool = False
         self._verdict: str | None = None
         self._explanation: str = ""
         self._done: bool = False
@@ -131,18 +134,10 @@ class RansomwareDetectionEnv:
         )
 
         # Re-create host state for tool execution.
-        # We re-seed with the same rng state approach but use fresh state
-        # so the tools see the same filesystem the episode was generated from.
-        from simulator.registry import FileRegistry, ProcessTable
         from datetime import datetime
-
         now = datetime(2025, 6, 15, 10, 0, 0)
-        # Use a separate RNG so we don't disturb the caller's sequence
         host_rng = np.random.RandomState(rng.randint(0, 2**31))
-        self._registry = FileRegistry()
-        self._registry.seed_filesystem(host_rng, now)
-        self._ptable = ProcessTable()
-        self._ptable.seed_processes(now)
+        self._host = HostState.create(host_rng, now)
 
         # Initialize memory store with optional history
         self._memory = MemoryStore(top_k=self.memory_top_k)
@@ -153,7 +148,8 @@ class RansomwareDetectionEnv:
         # Reset rollout state
         self._steps = []
         self._cumulative_cost = 0.0
-        self._well_formatted = True
+        self._has_thinking = False
+        self._has_tool_call = False
         self._verdict = None
         self._explanation = ""
         self._done = False
@@ -173,10 +169,13 @@ class RansomwareDetectionEnv:
         tool_name = tool_call.tool_name
         args = tool_call.args
 
+        # Track format compliance
+        self._has_tool_call = True
+
         # Execute the tool
         result, cost = execute_tool(
             tool_name, args,
-            self._registry, self._ptable, self._memory,
+            self._host, self._memory,
         )
         self._cumulative_cost += cost
 
@@ -208,17 +207,21 @@ class RansomwareDetectionEnv:
     def step_from_text(self, model_output: str) -> StepResult | None:
         """Parse a tool call from model output and execute it.
 
-        Returns None if no valid tool call was found (marks as poorly formatted).
+        Returns None if no valid tool call was found.
+        Also tracks whether thinking tags are present.
         """
+        # Track thinking
+        if extract_thinking(model_output) is not None:
+            self._has_thinking = True
+
         parsed = parse_tool_call(model_output)
         if parsed is None:
-            self._well_formatted = False
             return None
         return self.step(parsed)
 
-    def mark_format_error(self) -> None:
-        """Flag that the model produced poorly formatted output."""
-        self._well_formatted = False
+    def mark_thinking(self) -> None:
+        """Flag that the model produced thinking output."""
+        self._has_thinking = True
 
     def finish(self) -> RolloutResult:
         """Finalize the episode and compute reward.
@@ -243,7 +246,8 @@ class RansomwareDetectionEnv:
             cumulative_cost=self._cumulative_cost,
             steps_taken=self.steps_taken,
             max_steps=self.max_steps,
-            well_formatted=self._well_formatted,
+            has_thinking=self._has_thinking,
+            has_tool_call=self._has_tool_call,
         )
 
         return RolloutResult(
@@ -252,7 +256,8 @@ class RansomwareDetectionEnv:
             ground_truth=self._episode.ground_truth,
             steps=list(self._steps),
             cumulative_cost=self._cumulative_cost,
-            well_formatted=self._well_formatted,
+            has_thinking=self._has_thinking,
+            has_tool_call=self._has_tool_call,
             reward=reward,
             exceeded_budget=exceeded,
         )

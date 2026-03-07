@@ -21,15 +21,33 @@ from evaluation.metrics import (
 )
 
 # All investigation tools (excluding DECIDE which is always available)
-ALL_TOOLS = ["inspect_file", "check_process", "scan_directory", "recall_memory"]
+ALL_TOOLS = [
+    "inspect_file", "check_process", "scan_directory", "recall_memory",
+    "list_connections", "inspect_connection", "query_registry",
+    "list_process_handles", "query_event_log", "read_file_sample",
+]
+
+# V1 tools (original 4, before HostState expansion)
+V1_TOOLS = ["inspect_file", "check_process", "scan_directory", "recall_memory"]
 
 # Ablation variants from design doc section 5.6
 ABLATION_VARIANTS: dict[str, list[str]] = {
     "full": ALL_TOOLS.copy(),
+    # Original v1 tool removal variants
     "no_recall_memory": [t for t in ALL_TOOLS if t != "recall_memory"],
     "no_scan_directory": [t for t in ALL_TOOLS if t != "scan_directory"],
     "no_check_process": [t for t in ALL_TOOLS if t != "check_process"],
     "inspect_only": ["inspect_file"],
+    # New tool removal variants
+    "no_list_connections": [t for t in ALL_TOOLS if t != "list_connections"],
+    "no_query_registry": [t for t in ALL_TOOLS if t != "query_registry"],
+    "no_event_log": [t for t in ALL_TOOLS if t != "query_event_log"],
+    "no_process_handles": [t for t in ALL_TOOLS if t != "list_process_handles"],
+    "no_file_sample": [t for t in ALL_TOOLS if t != "read_file_sample"],
+    # Category variants
+    "file_tools_only": ["inspect_file", "scan_directory", "read_file_sample"],
+    "network_tools_only": ["list_connections", "inspect_connection"],
+    "v1_tools": V1_TOOLS.copy(),
 }
 
 

@@ -5,6 +5,7 @@ from datetime import datetime
 import numpy as np
 import pytest
 
+from simulator.host import HostState
 from simulator.models import ContentType
 from simulator.registry import FileRegistry, ProcessTable
 from tools.inspection import (
@@ -15,6 +16,13 @@ from tools.inspection import (
     inspect_file,
     scan_directory,
 )
+from tools.network_tools import inspect_connection, list_connections
+from tools.forensic_tools import (
+    list_process_handles,
+    query_event_log,
+    query_registry,
+    read_file_sample,
+)
 from tools.parser import (
     ParsedToolCall,
     extract_thinking,
@@ -23,6 +31,12 @@ from tools.parser import (
     parse_all_tool_calls,
     parse_tool_call,
 )
+
+
+@pytest.fixture
+def host():
+    rng = np.random.RandomState(42)
+    return HostState.create(rng)
 
 
 @pytest.fixture
@@ -84,41 +98,181 @@ class TestScanDirectory:
 
 
 class TestExecuteTool:
-    def test_dispatch_inspect_file(self, registry, ptable):
-        result, cost = execute_tool("inspect_file",
-                                    {"path": "C:/Users/A/Documents/report.docx"},
-                                    registry, ptable)
-        assert result["entropy"] == 4.2
+    def test_dispatch_inspect_file(self, host):
+        # Use a known path from the seeded filesystem
+        paths = host.files.all_paths()
+        result, cost = execute_tool("inspect_file", {"path": paths[0]}, host)
+        assert "entropy" in result
         assert cost == TOOL_COSTS["inspect_file"]
 
-    def test_dispatch_check_process(self, registry, ptable):
-        result, cost = execute_tool("check_process", {"pid": 4},
-                                    registry, ptable)
+    def test_dispatch_check_process(self, host):
+        result, cost = execute_tool("check_process", {"pid": 4}, host)
         assert result["name"] == "System"
         assert cost == TOOL_COSTS["check_process"]
 
-    def test_dispatch_decide_valid(self, registry, ptable):
+    def test_dispatch_decide_valid(self, host):
         result, cost = execute_tool(
-            "DECIDE", {"verdict": "alert", "explanation": "test"},
-            registry, ptable)
+            "DECIDE", {"verdict": "alert", "explanation": "test"}, host)
         assert result["verdict"] == "alert"
         assert cost == 0.0
 
-    def test_dispatch_decide_invalid(self, registry, ptable):
+    def test_dispatch_decide_invalid(self, host):
         result, cost = execute_tool(
-            "DECIDE", {"verdict": "invalid_verdict"},
-            registry, ptable)
+            "DECIDE", {"verdict": "invalid_verdict"}, host)
         assert "error" in result
 
-    def test_unknown_tool(self, registry, ptable):
-        result, cost = execute_tool("fake_tool", {}, registry, ptable)
+    def test_unknown_tool(self, host):
+        result, cost = execute_tool("fake_tool", {}, host)
+        assert "error" in result
+
+    def test_dispatch_list_connections(self, host):
+        result, cost = execute_tool("list_connections", {}, host)
+        assert "connections" in result
+        assert cost == TOOL_COSTS["list_connections"]
+
+    def test_dispatch_inspect_connection(self, host):
+        result, cost = execute_tool("inspect_connection", {"conn_id": 1}, host)
+        assert "conn_id" in result or "error" in result
+        assert cost == TOOL_COSTS["inspect_connection"]
+
+    def test_dispatch_query_registry(self, host):
+        result, cost = execute_tool(
+            "query_registry",
+            {"key_path": r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"},
+            host)
+        assert "values" in result or "error" in result
+        assert cost == TOOL_COSTS["query_registry"]
+
+    def test_dispatch_list_process_handles(self, host):
+        result, cost = execute_tool("list_process_handles", {"pid": 4}, host)
+        assert result["name"] == "System"
+        assert "loaded_modules" in result
+        assert cost == TOOL_COSTS["list_process_handles"]
+
+    def test_dispatch_query_event_log(self, host):
+        result, cost = execute_tool("query_event_log", {}, host)
+        assert "entries" in result
+        assert result["count"] > 0
+        assert cost == TOOL_COSTS["query_event_log"]
+
+    def test_dispatch_read_file_sample(self, host):
+        result, cost = execute_tool(
+            "read_file_sample",
+            {"path": host.files.all_paths()[0]},
+            host)
+        # Contents may not be set, so we might get an error
+        assert "path" in result or "error" in result
+        assert cost == TOOL_COSTS["read_file_sample"]
+
+
+# ── New tool function tests ──────────────────────────────────────────
+
+
+class TestListConnections:
+    def test_all_connections(self, host):
+        result = list_connections(host.connections)
+        assert len(result["connections"]) == 3  # seeded background connections
+
+    def test_filter_by_state(self, host):
+        result = list_connections(host.connections, filter_state="established")
+        assert len(result["connections"]) == 3
+
+    def test_filter_empty_result(self, host):
+        result = list_connections(host.connections, filter_state="closed")
+        assert len(result["connections"]) == 0
+
+
+class TestInspectConnection:
+    def test_existing_connection(self, host):
+        result = inspect_connection(host.connections, 1)
+        assert result["conn_id"] == 1
+        assert "remote_address" in result
+        assert "opened_at" in result
+
+    def test_missing_connection(self, host):
+        result = inspect_connection(host.connections, 999)
+        assert "error" in result
+
+
+class TestQueryRegistry:
+    def test_existing_key(self, host):
+        result = query_registry(
+            host.registry,
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        )
+        assert "values" in result
+        assert "SecurityHealth" in result["values"]
+
+    def test_missing_key(self, host):
+        result = query_registry(host.registry, r"HKLM\MISSING\KEY")
+        assert "error" in result
+
+    def test_parent_key_enumerates_children(self, host):
+        result = query_registry(host.registry, r"HKLM\SOFTWARE")
+        # Should find sub-keys
+        assert "sub_keys" in result
+
+
+class TestListProcessHandles:
+    def test_system_process(self, host):
+        result = list_process_handles(host.processes, 4)
+        assert result["name"] == "System"
+        assert result["user"] == "SYSTEM"
+        assert result["is_elevated"] is True
+        assert "ntdll.dll" in result["loaded_modules"]
+
+    def test_missing_process(self, host):
+        result = list_process_handles(host.processes, 99999)
+        assert "error" in result
+
+
+class TestQueryEventLog:
+    def test_all_events(self, host):
+        result = query_event_log(host.event_log)
+        assert result["count"] == 5  # seeded events
+
+    def test_filter_by_source(self, host):
+        result = query_event_log(host.event_log, source="System")
+        assert result["count"] >= 2
+
+    def test_filter_by_event_id(self, host):
+        result = query_event_log(host.event_log, event_id=4624)
+        assert result["count"] == 1
+
+    def test_invalid_since(self, host):
+        result = query_event_log(host.event_log, since="not-a-date")
+        assert "error" in result
+
+
+class TestReadFileSample:
+    def test_file_without_contents(self, host):
+        path = host.files.all_paths()[0]
+        result = read_file_sample(host.files, path)
+        assert "error" in result  # no contents set
+
+    def test_file_with_contents(self):
+        r = FileRegistry()
+        now = datetime(2025, 1, 1)
+        r.add_file("C:/test.txt", 100, 3.0, ".txt", ContentType.DOC, now)
+        r.modify_contents("C:/test.txt", b"Hello, World! " * 20)
+        result = read_file_sample(r, "C:/test.txt")
+        assert "hex" in result
+        assert "entropy" in result
+        assert "magic_bytes" in result
+
+    def test_missing_file(self, host):
+        result = read_file_sample(host.files, "C:/nope.txt")
         assert "error" in result
 
 
 class TestToolCosts:
     def test_all_tools_have_costs(self):
-        expected_tools = {"inspect_file", "check_process", "scan_directory",
-                          "recall_memory", "DECIDE"}
+        expected_tools = {
+            "inspect_file", "check_process", "scan_directory",
+            "recall_memory", "list_connections", "inspect_connection",
+            "query_registry", "list_process_handles", "query_event_log",
+            "read_file_sample", "DECIDE",
+        }
         assert set(TOOL_COSTS.keys()) == expected_tools
 
     def test_decide_is_free(self):
@@ -180,6 +334,24 @@ class TestParseToolCallFunction:
         assert result.tool_name == "recall_memory"
         assert result.args["query"] == "entropy spike file encryption"
 
+    def test_new_tools_parse(self):
+        """Verify the 6 new tools parse correctly."""
+        test_cases = [
+            ('list_connections("established")', "list_connections",
+             {"filter": "established"}),
+            ('inspect_connection(5)', "inspect_connection", {"conn_id": 5}),
+            ('query_registry("HKLM\\\\SOFTWARE")', "query_registry",
+             {"key_path": "HKLM\\SOFTWARE"}),
+            ('list_process_handles(1234)', "list_process_handles", {"pid": 1234}),
+            ('read_file_sample("C:/test.txt")', "read_file_sample",
+             {"path": "C:/test.txt"}),
+        ]
+        for raw, expected_name, expected_args in test_cases:
+            text = f"<tool_call>{raw}</tool_call>"
+            result = parse_tool_call(text)
+            assert result is not None, f"Failed to parse: {raw}"
+            assert result.tool_name == expected_name
+
 
 class TestParseEdgeCases:
     def test_no_tool_call(self):
@@ -193,17 +365,14 @@ class TestParseEdgeCases:
         # Should fall through to function parsing, which also fails
         result = parse_tool_call(text)
         # The function parser might partially match — that's okay
-        # as long as it doesn't crash
 
     def test_multiple_tool_calls(self):
         text = '''<tool_call>inspect_file("C:/a.txt")</tool_call>
 some thinking...
 <tool_call>inspect_file("C:/b.txt")</tool_call>'''
-        # parse_tool_call returns first one
         result = parse_tool_call(text)
         assert result.args["path"] == "C:/a.txt"
 
-        # parse_all_tool_calls returns all
         all_calls = parse_all_tool_calls(text)
         assert len(all_calls) == 2
         assert all_calls[1].args["path"] == "C:/b.txt"

@@ -30,8 +30,8 @@ from pathlib import Path
 
 import numpy as np
 
+from simulator.host import HostState
 from simulator.models import GroundTruth, ScenarioType, Verdict
-from simulator.registry import FileRegistry, ProcessTable
 from simulator.telemetry import generate_episode
 from tools.inspection import TOOL_COSTS, VALID_VERDICTS
 from tools.memory import MemoryStore
@@ -87,8 +87,7 @@ class DetectionEnv:
     """
 
     def __init__(self) -> None:
-        self._registry: FileRegistry | None = None
-        self._ptable: ProcessTable | None = None
+        self._host: HostState | None = None
         self._memory: MemoryStore | None = None
         self._ground_truth: GroundTruth | None = None
         self._steps: int = 0
@@ -123,10 +122,7 @@ class DetectionEnv:
         from datetime import datetime
         now = datetime(2025, 6, 15, 10, 0, 0)
         host_rng = np.random.RandomState(rng.randint(0, 2**31))
-        self._registry = FileRegistry()
-        self._registry.seed_filesystem(host_rng, now)
-        self._ptable = ProcessTable()
-        self._ptable.seed_processes(now)
+        self._host = HostState.create(host_rng, now)
 
         # Initialize memory
         self._memory = MemoryStore(top_k=3)
@@ -156,7 +152,7 @@ class DetectionEnv:
         self._steps += 1
         self._cumulative_cost += TOOL_COSTS["inspect_file"]
 
-        record = self._registry.get_file(path)
+        record = self._host.files.get_file(path)
         if record is None:
             return json.dumps({"error": f"File not found: {path}"})
 
@@ -180,11 +176,11 @@ class DetectionEnv:
         self._steps += 1
         self._cumulative_cost += TOOL_COSTS["check_process"]
 
-        record = self._ptable.get_process(pid)
+        record = self._host.processes.get_process(pid)
         if record is None:
             return json.dumps({"error": f"Process not found: pid={pid}"})
 
-        parent = self._ptable.get_process(record.parent_pid)
+        parent = self._host.processes.get_process(record.parent_pid)
         parent_name = parent.name if parent else "unknown"
 
         return json.dumps({
@@ -206,7 +202,7 @@ class DetectionEnv:
         self._steps += 1
         self._cumulative_cost += TOOL_COSTS["scan_directory"]
 
-        files = self._registry.list_directory(path)
+        files = self._host.files.list_directory(path)
         if not files:
             return json.dumps({"files": [], "note": f"No files found in {path}"})
 
@@ -236,6 +232,113 @@ class DetectionEnv:
 
         matches = self._memory.recall(query)
         return json.dumps({"matches": matches})
+
+    def list_connections(self, filter_state: str = "") -> str:
+        """List active network connections, optionally filtered by state.
+
+        Args:
+            filter_state: Optional state filter (e.g., "established", "closed").
+
+        Returns:
+            JSON string with list of connections.
+        """
+        self._steps += 1
+        self._cumulative_cost += TOOL_COSTS["list_connections"]
+
+        from tools.network_tools import list_connections as _list_connections
+        result = _list_connections(
+            self._host.connections,
+            filter_state=filter_state if filter_state else None,
+        )
+        return json.dumps(result)
+
+    def inspect_connection(self, conn_id: int) -> str:
+        """Inspect a specific network connection by ID.
+
+        Args:
+            conn_id: Connection ID to inspect.
+
+        Returns:
+            JSON string with connection details or error message.
+        """
+        self._steps += 1
+        self._cumulative_cost += TOOL_COSTS["inspect_connection"]
+
+        from tools.network_tools import inspect_connection as _inspect_connection
+        result = _inspect_connection(self._host.connections, conn_id)
+        return json.dumps(result, default=str)
+
+    def query_registry(self, key_path: str) -> str:
+        """Query a Windows registry key for values and sub-keys.
+
+        Args:
+            key_path: Registry key path (e.g., "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run").
+
+        Returns:
+            JSON string with registry values or error message.
+        """
+        self._steps += 1
+        self._cumulative_cost += TOOL_COSTS["query_registry"]
+
+        from tools.forensic_tools import query_registry as _query_registry
+        result = _query_registry(self._host.registry, key_path)
+        return json.dumps(result)
+
+    def list_process_handles(self, pid: int) -> str:
+        """List a process's open file handles, loaded modules, and integrity info.
+
+        Args:
+            pid: Process ID to inspect.
+
+        Returns:
+            JSON string with process forensic details or error message.
+        """
+        self._steps += 1
+        self._cumulative_cost += TOOL_COSTS["list_process_handles"]
+
+        from tools.forensic_tools import list_process_handles as _list_process_handles
+        result = _list_process_handles(self._host.processes, pid)
+        return json.dumps(result)
+
+    def query_event_log(self, source: str = "", event_id: int = 0,
+                        since: str = "") -> str:
+        """Query the Windows Event Log with optional filters.
+
+        Args:
+            source: Filter by event source (e.g., "Security", "System").
+            event_id: Filter by event ID (e.g., 4624 for logon events).
+            since: Filter events after this ISO timestamp.
+
+        Returns:
+            JSON string with matching event log entries.
+        """
+        self._steps += 1
+        self._cumulative_cost += TOOL_COSTS["query_event_log"]
+
+        from tools.forensic_tools import query_event_log as _query_event_log
+        result = _query_event_log(
+            self._host.event_log,
+            source=source if source else None,
+            event_id=event_id if event_id else None,
+            since=since if since else None,
+        )
+        return json.dumps(result, default=str)
+
+    def read_file_sample(self, path: str) -> str:
+        """Read a hex sample of file contents with entropy and magic bytes analysis.
+
+        Args:
+            path: Full path to the file to sample.
+
+        Returns:
+            JSON string with hex bytes, entropy, and magic bytes, or error message.
+        """
+        self._steps += 1
+        self._cumulative_cost += TOOL_COSTS["read_file_sample"]
+
+        from tools.forensic_tools import read_file_sample as _read_file_sample
+        result = _read_file_sample(self._host.files, path)
+        return json.dumps(result)
 
     def decide(self, verdict: str, explanation: str) -> str:
         """Submit your final verdict. This ends the investigation.

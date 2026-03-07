@@ -131,7 +131,7 @@ class TestStepFromText:
         env.reset(ScenarioType.BENIGN, 0.9, rng)
         result = env.step_from_text("Just some thinking, no tool call")
         assert result is None
-        assert not env._well_formatted
+        assert not env._has_tool_call
 
     def test_json_format_tool_call(self, env, rng):
         env.reset(ScenarioType.BENIGN, 0.9, rng)
@@ -213,14 +213,27 @@ class TestFinish:
         assert rollout.reward.verdict_reward > 0
         assert rollout.reward.total > 0
 
-    def test_format_error_reduces_reward(self, env, rng):
+    def test_no_thinking_reduces_format_reward(self, env, rng):
         env.reset(ScenarioType.BENIGN, 0.9, rng)
-        env.mark_format_error()
+        # Step without thinking tags — only has_tool_call will be True
         env.step(ParsedToolCall("DECIDE", {"verdict": "ignore"}, ""))
 
         rollout = env.finish()
-        assert rollout.reward.format_reward == 0.0
-        assert not rollout.well_formatted
+        assert not rollout.has_thinking
+        assert rollout.has_tool_call
+        # Only tool_call component (0.05), no thinking component
+        assert abs(rollout.reward.format_reward - 0.05) < 1e-9
+
+    def test_thinking_tags_increase_format_reward(self, env, rng):
+        env.reset(ScenarioType.BENIGN, 0.9, rng)
+        env.mark_thinking()
+        env.step(ParsedToolCall("DECIDE", {"verdict": "ignore"}, ""))
+
+        rollout = env.finish()
+        assert rollout.has_thinking
+        assert rollout.has_tool_call
+        # Both components: 0.05 + 0.05
+        assert abs(rollout.reward.format_reward - 0.10) < 1e-9
 
 
 class TestRolloutResult:
