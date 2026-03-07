@@ -87,7 +87,6 @@ def format_telemetry_window(events: list[TelemetryEvent], window_start: datetime
             parts = [
                 f"[{offset_str}] FILE path={event.path}",
                 f"size_delta={event.size_delta:+d}",
-                f"entropy_delta={event.entropy_delta:+.2f}",
             ]
             if event.extension_change:
                 parts.append(f"ext_change={event.extension_change}")

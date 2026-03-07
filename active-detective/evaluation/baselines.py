@@ -188,7 +188,7 @@ class ExhaustiveAgent(BaselineAgent):
     def _heuristic_verdict(telemetry: str) -> str:
         """Simple keyword heuristic for verdict."""
         suspicious_keywords = [
-            "entropy_delta=+", "ext_change=", ".locked", ".encrypted",
+            "ext_change=", ".locked", ".encrypted",
             ".enc", "encoded", "ransom",
         ]
         score = sum(1 for kw in suspicious_keywords if kw in telemetry)
@@ -205,36 +205,22 @@ class ExhaustiveAgent(BaselineAgent):
 class HeuristicAgent(BaselineAgent):
     """Feature-based heuristic detector. No LLM, no RL.
 
-    Extracts entropy_delta and rename_rate from telemetry text,
+    Counts extension changes and size deltas from telemetry text,
     applies thresholds. This is the "passive classifier" baseline
-    from the design doc.
+    from the design doc. Note: entropy_delta is no longer available
+    in passive telemetry (the agent must use tools to discover it).
     """
 
     name = "heuristic"
 
-    def __init__(
-        self,
-        entropy_threshold: float = 2.0,
-        rename_threshold: int = 2,
-    ) -> None:
-        self.entropy_threshold = entropy_threshold
-        self.rename_threshold = rename_threshold
-
     def act(self, env, telemetry_text, rng):
         # Extract features directly from telemetry text (no tool calls)
-        entropy_deltas = _extract_entropy_deltas(telemetry_text)
         rename_count = _count_extension_changes(telemetry_text)
 
-        mean_entropy_delta = (
-            sum(entropy_deltas) / len(entropy_deltas)
-            if entropy_deltas else 0.0
-        )
-
-        if (mean_entropy_delta > self.entropy_threshold
-                or rename_count >= self.rename_threshold):
+        if rename_count >= 2:
+            verdict = "quarantine"
+        elif rename_count >= 1:
             verdict = "alert"
-        elif mean_entropy_delta > self.entropy_threshold / 2 or rename_count >= 1:
-            verdict = "monitor"
         else:
             verdict = "ignore"
 
@@ -243,8 +229,7 @@ class HeuristicAgent(BaselineAgent):
             env.step(ParsedToolCall(
                 "DECIDE",
                 {"verdict": verdict,
-                 "explanation": f"entropy_delta={mean_entropy_delta:.2f}, "
-                                f"rename_count={rename_count}"},
+                 "explanation": f"rename_count={rename_count}"},
                 "",
             ))
 

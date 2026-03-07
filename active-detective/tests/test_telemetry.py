@@ -98,6 +98,24 @@ class TestFormatTelemetryWindow:
         assert "FILE" in text
         assert "C:/test.docx" in text
         assert "ext_change" in text
+        assert "entropy_delta" not in text
+
+    def test_file_event_excludes_entropy_delta(self):
+        """entropy_delta must not appear in passive telemetry — agent must actively investigate."""
+        events = [
+            FileEvent(
+                ts=datetime(2025, 6, 15, 10, 0, 5),
+                path="C:/test.docx",
+                size_delta=1024,
+                entropy_delta=3.5,
+                extension_change=".docx->.locked",
+            )
+        ]
+        text = format_telemetry_window(events, datetime(2025, 6, 15, 10, 0, 0))
+        assert "entropy_delta" not in text
+        assert "FILE" in text
+        assert "size_delta" in text
+        assert "ext_change" in text
 
     def test_net_event_format(self):
         now = datetime(2025, 1, 1)
