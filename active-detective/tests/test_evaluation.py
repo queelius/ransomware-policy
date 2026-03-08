@@ -271,7 +271,6 @@ class TestHelperFunctions:
 class TestAblationVariants:
     def test_all_variants_defined(self):
         assert "full" in ABLATION_VARIANTS
-        assert "no_recall_memory" in ABLATION_VARIANTS
         assert "no_scan_directory" in ABLATION_VARIANTS
         assert "no_check_process" in ABLATION_VARIANTS
         assert "inspect_only" in ABLATION_VARIANTS
@@ -287,21 +286,17 @@ class TestAblationVariants:
 
     def test_full_has_all_tools(self):
         assert set(ABLATION_VARIANTS["full"]) == {
-            "inspect_file", "check_process", "scan_directory", "recall_memory",
+            "inspect_file", "check_process", "scan_directory",
             "list_connections", "inspect_connection", "query_registry",
             "list_process_handles", "query_event_log", "read_file_sample",
         }
-
-    def test_no_recall_excludes_recall(self):
-        assert "recall_memory" not in ABLATION_VARIANTS["no_recall_memory"]
-        assert "inspect_file" in ABLATION_VARIANTS["no_recall_memory"]
 
     def test_inspect_only(self):
         assert ABLATION_VARIANTS["inspect_only"] == ["inspect_file"]
 
     def test_v1_tools(self):
         assert set(ABLATION_VARIANTS["v1_tools"]) == {
-            "inspect_file", "check_process", "scan_directory", "recall_memory",
+            "inspect_file", "check_process", "scan_directory",
         }
 
     def test_category_variants(self):
@@ -314,7 +309,7 @@ class TestAblationVariants:
 
     def test_each_removal_variant_excludes_exactly_one(self):
         removal_variants = [
-            "no_recall_memory", "no_scan_directory", "no_check_process",
+            "no_scan_directory", "no_check_process",
             "no_list_connections", "no_query_registry", "no_event_log",
             "no_process_handles", "no_file_sample",
         ]
@@ -348,7 +343,7 @@ class TestRunAblationSweep:
 
     def test_tracks_removed_tool_attempts(self):
         def mock_eval_fn(scenarios, available_tools):
-            # Simulate agent trying to use recall_memory even when removed
+            # Simulate agent trying to use scan_directory even when removed
             return [
                 EvalResult(
                     verdict="ignore",
@@ -358,7 +353,7 @@ class TestRunAblationSweep:
                     steps_taken=2,
                     cumulative_cost=-0.03,
                     k_max=5,
-                    tools_used=["recall_memory", "DECIDE"],
+                    tools_used=["scan_directory", "DECIDE"],
                 )
                 for _ in scenarios
             ]
@@ -366,10 +361,10 @@ class TestRunAblationSweep:
         scenarios = [{"scenario_type": "benign"}] * 3
         results = run_ablation_sweep(mock_eval_fn, scenarios)
 
-        # The "no_recall_memory" variant should detect attempted use
-        no_recall = next(r for r in results if r.variant_name == "no_recall_memory")
-        assert "recall_memory" in no_recall.attempted_removed_tools
-        assert no_recall.attempted_removed_tools["recall_memory"] == 3
+        # The "no_scan_directory" variant should detect attempted use
+        no_scan = next(r for r in results if r.variant_name == "no_scan_directory")
+        assert "scan_directory" in no_scan.attempted_removed_tools
+        assert no_scan.attempted_removed_tools["scan_directory"] == 3
 
 
 class TestAblationSerialization:

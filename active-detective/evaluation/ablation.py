@@ -22,19 +22,18 @@ from evaluation.metrics import (
 
 # All investigation tools (excluding DECIDE which is always available)
 ALL_TOOLS = [
-    "inspect_file", "check_process", "scan_directory", "recall_memory",
+    "inspect_file", "check_process", "scan_directory",
     "list_connections", "inspect_connection", "query_registry",
     "list_process_handles", "query_event_log", "read_file_sample",
 ]
 
-# V1 tools (original 4, before HostState expansion)
-V1_TOOLS = ["inspect_file", "check_process", "scan_directory", "recall_memory"]
+# V1 tools (original 3, before HostState expansion)
+V1_TOOLS = ["inspect_file", "check_process", "scan_directory"]
 
 # Ablation variants from design doc section 5.6
 ABLATION_VARIANTS: dict[str, list[str]] = {
     "full": ALL_TOOLS.copy(),
-    # Original v1 tool removal variants
-    "no_recall_memory": [t for t in ALL_TOOLS if t != "recall_memory"],
+    # Tool removal variants
     "no_scan_directory": [t for t in ALL_TOOLS if t != "scan_directory"],
     "no_check_process": [t for t in ALL_TOOLS if t != "check_process"],
     "inspect_only": ["inspect_file"],

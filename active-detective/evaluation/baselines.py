@@ -78,7 +78,7 @@ class RandomAgent(BaselineAgent):
 
             tool_choice = rng.choice([
                 "check_process", "inspect_file", "scan_directory",
-                "recall_memory", "list_connections", "inspect_connection",
+                "list_connections", "inspect_connection",
                 "query_registry", "list_process_handles", "query_event_log",
                 "read_file_sample",
             ])
@@ -90,8 +90,6 @@ class RandomAgent(BaselineAgent):
                 call = ParsedToolCall(tool_choice, {"path": "C:/test.txt"}, "")
             elif tool_choice == "scan_directory":
                 call = ParsedToolCall(tool_choice, {"path": "C:/Users"}, "")
-            elif tool_choice == "recall_memory":
-                call = ParsedToolCall(tool_choice, {"query": "recent activity"}, "")
             elif tool_choice == "list_connections":
                 call = ParsedToolCall(tool_choice, {}, "")
             elif tool_choice == "inspect_connection":
@@ -144,7 +142,6 @@ class ExhaustiveAgent(BaselineAgent):
         ("query_registry", {"key_path": r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"}),
         ("query_event_log", {}),
         ("list_process_handles", {"pid": 4}),
-        ("recall_memory", {"query": "recent suspicious activity"}),
         ("inspect_file", {"path": "C:/Users/A/Documents"}),
         ("read_file_sample", {"path": "C:/Users/A/Documents"}),
         ("inspect_connection", {"conn_id": 1}),
