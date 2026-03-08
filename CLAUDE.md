@@ -86,8 +86,8 @@ The main research contribution. An LLM agent trained via GRPO to actively invest
 
 ### Architecture
 - **Simulator** (`simulator/`): HostState with FileRegistry (mutable filesystem + contents) + ProcessTable (processes + handles/modules), 5 benign generators, 4 attack generators (blitz, sleeper, exfil-first, semantic shuffle), observability filter
-- **Tools** (`tools/`): inspect_file, check_process, scan_directory, list_connections, inspect_connection, query_registry, list_process_handles, query_event_log, read_file_sample, recall_memory (embedding-similarity store), DECIDE; dual-format parser (Qwen3 JSON + function-call syntax)
-- **Environment** (`environment/`): RansomwareDetectionEnv (tool-execution harness), RLVR reward (asymmetric: FN=-2, FP=-1, correct=+1), budget enforcement and cost accumulation
+- **Tools** (`tools/`): 9 investigation tools (inspect_file, check_process, scan_directory, list_connections, inspect_connection, query_registry, list_process_handles, query_event_log, read_file_sample) + DECIDE verdict action; dual-format parser (Qwen3 JSON + function-call syntax)
+- **Environment** (`environment/`): RansomwareDetectionEnv (frozen-snapshot HostState, multi-window history), RLVR reward (asymmetric: FN=-2, FP=-1, correct=+1), budget enforcement and cost accumulation
 - **Training** (`training/`): GRPO via TRL's `environment_factory` for real multi-step rollouts, QLoRA (4-bit NF4, r=16), Qwen3-8B base
 - **Evaluation** (`evaluation/`): Detection metrics, baselines (Random/Exhaustive/Heuristic), tool ablation sweep, Pareto analysis
 
@@ -95,7 +95,7 @@ The main research contribution. An LLM agent trained via GRPO to actively invest
 ```bash
 cd active-detective
 
-# Run tests (276 tests)
+# Run tests (368 tests)
 python -m pytest tests/ -q
 
 # Run specific test file
@@ -108,12 +108,16 @@ python -c "from training.scenarios import generate_training_scenarios, save_scen
 accelerate launch -m training.train_grpo --model Qwen/Qwen3-8B --output-dir ./checkpoints --n-episodes 500 --group-size 4
 ```
 
-### Design doc
-Full design: `docs/plans/2026-03-05-active-detective-system-design.md`
+### Temporal model
+Each episode generates a frozen HostState snapshot at a given attack progress level. Prior telemetry windows (default 2) are generated at earlier progress values to provide temporal context. The agent sees passive telemetry (path, size_delta, ext_change, pid) but must use tools to discover entropy, file contents, and other forensic details.
+
+### Design docs
+- System design: `docs/plans/2026-03-05-active-detective-system-design.md`
+- POMDP environment design: `docs/plans/2026-03-07-pomdp-environment-design.md`
 
 ## Current status and next priorities
 
-- Active Detective: Full pipeline implemented (276 tests), ready for GPU training
+- Active Detective: Full pipeline implemented (368 tests), POMDP environment with frozen snapshots + multi-window history, ready for GPU training
 - Next: run GRPO training on Vast.ai A100, evaluate against baselines, tool ablation study
 - Fine-tuning pipeline (older approach) structurally complete but superseded by active-detective
 
