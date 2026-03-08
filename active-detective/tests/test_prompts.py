@@ -61,6 +61,10 @@ class TestBuildSystemPrompt:
         assert "<tool_call>" in prompt
         assert "<tool_result>" in prompt
 
+    def test_mentions_prior_telemetry_context(self):
+        prompt = build_system_prompt()
+        assert "prior" in prompt.lower()
+
 
 class TestFormatEpisodeInput:
     def test_combines_prompt_and_telemetry(self):
