@@ -94,14 +94,14 @@ def run_demo(seed: int = 42) -> None:
     ep_rng = np.random.RandomState(42)
     env.reset(ScenarioType.BLITZ, 0.8, ep_rng, attack_progress=0.6)
 
-    print(f"  Files in registry: {len(env._registry)}")
-    print(f"  Directories: {env._registry.directories()}")
-    print(f"  Processes: {env._ptable.all_pids()}")
+    print(f"  Files in registry: {len(env._host.files)}")
+    print(f"  Directories: {env._host.files.directories()}")
+    print(f"  Processes: {env._host.processes.all_pids()}")
     print()
 
     # Show a few files
     subsection("Sample files in C:/Users/A/Documents")
-    files = env._registry.list_directory("C:/Users/A/Documents")[:5]
+    files = env._host.files.list_directory("C:/Users/A/Documents")[:5]
     for f in files:
         encrypted_tag = f" {C.RED}[ENCRYPTED]{C.END}" if f.is_encrypted else ""
         print(f"  {f.path}  entropy={f.entropy:.2f}  size={f.size:,}  "
@@ -109,7 +109,7 @@ def run_demo(seed: int = 42) -> None:
 
     # Show a process
     subsection("Sample process (pid=4)")
-    proc = env._ptable.get_process(4)
+    proc = env._host.processes.get_process(4)
     print(f"  name={proc.name}  cmd={proc.command_line}  "
           f"children={proc.child_pids[:5]}")
 
