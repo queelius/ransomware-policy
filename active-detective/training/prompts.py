@@ -132,6 +132,7 @@ def build_chat_messages(
     system_prompt: str,
     telemetry_window: str,
     history: list[dict] | None = None,
+    history_windows: list[str] | None = None,
 ) -> list[dict]:
     """Build chat-format messages for chat models (e.g., Qwen3).
 
@@ -143,6 +144,11 @@ def build_chat_messages(
         Current telemetry observation.
     history:
         Optional prior tool-call/result turns to prepend.
+    history_windows:
+        Optional prior telemetry windows (oldest first) to include
+        as context before the current window. These are labeled
+        ``Window t-N (prior)`` so the model can reason about temporal
+        progression of events.
 
     Returns
     -------
@@ -153,9 +159,21 @@ def build_chat_messages(
     if history:
         messages.extend(history)
 
+    # Build user content with history context
+    if history_windows:
+        parts = []
+        n = len(history_windows)
+        for i, hw in enumerate(history_windows):
+            label = f"Window t-{n - i} (prior)"
+            parts.append(f"--- {label} ---\n{hw}")
+        parts.append(f"--- Current window ---\n{telemetry_window}")
+        user_content = "\n\n".join(parts)
+    else:
+        user_content = telemetry_window
+
     messages.append({
         "role": "user",
-        "content": f"## Telemetry window\n\n{telemetry_window}",
+        "content": f"## Telemetry window\n\n{user_content}",
     })
 
     return messages

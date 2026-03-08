@@ -105,3 +105,76 @@ class TestBuildChatMessages:
     def test_without_history(self):
         msgs = build_chat_messages("sys", "tel", history=None)
         assert len(msgs) == 2
+
+
+class TestHistoryInPrompt:
+    def test_history_windows_in_user_message(self):
+        system = build_system_prompt()
+        history_windows = [
+            "[+0.0s] FILE path=C:/test.docx size_delta=+100",
+            "[+0.0s] PROC pid=5 name=svchost.exe parent=1",
+        ]
+        current = "[+0.0s] FILE path=C:/test2.docx size_delta=+200 ext_change=.docx->.locked"
+        messages = build_chat_messages(system, current, history_windows=history_windows)
+        user_msg = messages[-1]["content"]
+        assert "Window t-2" in user_msg or "window t-2" in user_msg.lower()
+        assert "Window t-1" in user_msg or "window t-1" in user_msg.lower()
+        assert "CURRENT" in user_msg or "current" in user_msg.lower()
+        assert history_windows[0] in user_msg
+        assert current in user_msg
+
+    def test_no_history_just_current(self):
+        system = build_system_prompt()
+        current = "[+0.0s] FILE path=C:/test.docx size_delta=+100"
+        messages = build_chat_messages(system, current)
+        user_msg = messages[-1]["content"]
+        assert current in user_msg
+        # Should not have window labels when there's no history
+        assert "t-2" not in user_msg
+
+    def test_single_history_window(self):
+        system = build_system_prompt()
+        history_windows = ["[+0.0s] PROC pid=5 name=svchost.exe parent=1"]
+        current = "[+0.0s] FILE path=C:/test.docx size_delta=+100"
+        messages = build_chat_messages(system, current, history_windows=history_windows)
+        user_msg = messages[-1]["content"]
+        assert history_windows[0] in user_msg
+        assert current in user_msg
+
+    def test_empty_history_windows_same_as_none(self):
+        system = build_system_prompt()
+        current = "[+0.0s] FILE path=C:/test.docx size_delta=+100"
+        msgs_none = build_chat_messages(system, current, history_windows=None)
+        msgs_empty = build_chat_messages(system, current, history_windows=[])
+        assert msgs_none[-1]["content"] == msgs_empty[-1]["content"]
+
+    def test_history_windows_with_tool_history(self):
+        """history_windows (telemetry context) and history (tool turns) are independent."""
+        system = build_system_prompt()
+        tool_history = [
+            {"role": "assistant", "content": "<tool_call>inspect_file(\"x\")</tool_call>"},
+            {"role": "user", "content": "<tool_result>{}</tool_result>"},
+        ]
+        history_windows = ["[+0.0s] FILE path=C:/old.docx size_delta=+50"]
+        current = "[+0.0s] FILE path=C:/new.docx size_delta=+200"
+        messages = build_chat_messages(
+            system, current, history=tool_history, history_windows=history_windows,
+        )
+        # system + 2 tool turns + user
+        assert len(messages) == 4
+        user_msg = messages[-1]["content"]
+        assert "Window t-1" in user_msg
+        assert "Current window" in user_msg
+        assert history_windows[0] in user_msg
+        assert current in user_msg
+
+    def test_three_history_windows_labels(self):
+        system = build_system_prompt()
+        history_windows = ["win0", "win1", "win2"]
+        current = "current_telemetry"
+        messages = build_chat_messages(system, current, history_windows=history_windows)
+        user_msg = messages[-1]["content"]
+        assert "Window t-3 (prior)" in user_msg
+        assert "Window t-2 (prior)" in user_msg
+        assert "Window t-1 (prior)" in user_msg
+        assert "Current window" in user_msg
