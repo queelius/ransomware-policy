@@ -30,12 +30,15 @@ class TestEnvReset:
         assert env.budget_remaining == 5
         assert not env.is_done
 
-    def test_reset_with_history(self, env, rng):
-        history = ["File entropy spike on report.docx",
-                    "Normal office activity"]
-        text = env.reset(ScenarioType.BLITZ, 0.7, rng,
-                         history_windows=history)
-        assert isinstance(text, str)
+    def test_reset_stores_history_windows(self, env, rng):
+        """Environment should store history windows from episode generation."""
+        telemetry = env.reset(ScenarioType.BLITZ, 0.8, rng, attack_progress=0.6)
+        assert hasattr(env._episode, 'history_windows')
+        assert len(env._episode.history_windows) == 2  # default n_history
+
+    def test_reset_zero_history(self, env, rng):
+        telemetry = env.reset(ScenarioType.BENIGN, 0.8, rng, n_history=0)
+        assert env._episode.history_windows == []
 
     def test_reset_reproducible(self):
         env1 = RansomwareDetectionEnv()

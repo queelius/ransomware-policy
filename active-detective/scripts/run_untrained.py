@@ -133,7 +133,10 @@ def run_demo(seed: int = 42) -> None:
     env = RansomwareDetectionEnv(max_steps=5)
     ep_rng = np.random.RandomState(42)
     telemetry = env.reset(ScenarioType.BLITZ, 0.8, ep_rng, attack_progress=0.6)
-    messages = build_chat_messages(system_prompt, telemetry)
+    messages = build_chat_messages(
+        system_prompt, telemetry,
+        history_windows=env._episode.history_windows,
+    )
 
     for msg in messages:
         role_color = C.GREEN if msg["role"] == "system" else C.BLUE
@@ -276,7 +279,10 @@ def run_live(
         print(f"  {C.DIM}Ground truth: {env._episode.ground_truth.label}{C.END}\n")
 
         # Build initial messages
-        messages = build_chat_messages(system_prompt, telemetry)
+        messages = build_chat_messages(
+            system_prompt, telemetry,
+            history_windows=env._episode.history_windows,
+        )
 
         # Multi-step inference loop
         for step_num in range(k_max):

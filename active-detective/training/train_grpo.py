@@ -65,6 +65,7 @@ class TrainingConfig:
     save_steps: int = 50
     use_unsloth: bool = True
     disable_thinking: bool = False
+    n_history: int = 2
 
 
 # ── TRL Environment ──────────────────────────────────────────────────
@@ -105,6 +106,7 @@ class DetectionEnv:
         observability = scenario_data.get("observability", 0.5)
         attack_progress = scenario_data.get("attack_progress", 0.5)
         seed = scenario_data.get("seed", 42)
+        n_history = scenario_data.get("n_history", 2)
 
         rng = np.random.RandomState(seed)
 
@@ -112,6 +114,7 @@ class DetectionEnv:
         episode = generate_episode(
             scenario_type, observability, rng,
             attack_progress=attack_progress,
+            n_history=n_history,
         )
         self._ground_truth = episode.ground_truth
 
@@ -459,7 +462,7 @@ def prepare_dataset(config: TrainingConfig) -> list[dict]:
             "observability": ep.observability,
             "attack_progress": attack_progress,
             "seed": ep_seed,
-            "history_windows": [],
+            "n_history": config.n_history,
         }
 
         # Prompt in conversational format (telemetry injected by env.reset())

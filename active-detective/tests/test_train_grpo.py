@@ -25,13 +25,13 @@ from training.train_grpo import (
 
 class TestDetectionEnv:
     def _make_scenario_data(self, scenario_type="benign", observability=0.8,
-                            seed=42, attack_progress=0.0):
+                            seed=42, attack_progress=0.0, n_history=2):
         return json.dumps({
             "scenario_type": scenario_type,
             "observability": observability,
             "attack_progress": attack_progress,
             "seed": seed,
-            "history_windows": [],
+            "n_history": n_history,
         })
 
     def test_reset_returns_telemetry_text(self):
@@ -177,7 +177,7 @@ class TestDetectionEnvMultiStep:
             "observability": 0.9,
             "attack_progress": 0.0,
             "seed": 42,
-            "history_windows": [],
+            "n_history": 2,
         }))
 
         # Step 1: scan directory
@@ -202,7 +202,7 @@ class TestDetectionEnvMultiStep:
             "observability": 0.9,
             "attack_progress": 0.8,
             "seed": 42,
-            "history_windows": [],
+            "n_history": 2,
         }))
 
         # Investigate
@@ -348,6 +348,14 @@ class TestPrepareDataset:
         d2 = prepare_dataset(config)
         for a, b in zip(d1, d2):
             assert a["scenario_data"] == b["scenario_data"]
+
+    def test_scenario_data_includes_n_history(self):
+        config = TrainingConfig(n_episodes=3, seed=42)
+        dataset = prepare_dataset(config)
+        for item in dataset:
+            data = json.loads(item["scenario_data"])
+            assert "n_history" in data
+            assert data["n_history"] == 2  # default
 
     def test_tool_ablation_in_prompt(self):
         config = TrainingConfig(

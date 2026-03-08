@@ -103,7 +103,7 @@ class RansomwareDetectionEnv:
         observability: float,
         rng: np.random.RandomState,
         attack_progress: float = 0.5,
-        history_windows: list[str] | None = None,
+        n_history: int = 2,
     ) -> str:
         """Reset environment for a new episode.
 
@@ -117,8 +117,9 @@ class RansomwareDetectionEnv:
             Random state for reproducibility.
         attack_progress:
             How far along the attack is (0.0 to 1.0).
-        history_windows:
-            Optional list of past telemetry window texts to seed memory.
+        n_history:
+            Number of prior telemetry windows to generate for temporal
+            context.  Stored on ``self._episode.history_windows``.
 
         Returns
         -------
@@ -127,6 +128,7 @@ class RansomwareDetectionEnv:
         self._episode = generate_episode(
             scenario_type, observability, rng,
             attack_progress=attack_progress,
+            n_history=n_history,
         )
 
         # Re-create host state for tool execution.
