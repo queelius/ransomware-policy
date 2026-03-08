@@ -10,9 +10,8 @@ def test_import_simulator():
 
 
 def test_import_tools():
-    from tools import inspection, memory, parser
+    from tools import inspection, parser
     assert inspection is not None
-    assert memory is not None
     assert parser is not None
 
 

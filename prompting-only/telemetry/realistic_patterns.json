@@ -1,0 +1,313 @@
+{
+  "ransomware_families": {
+    "LockBit3": {
+      "description": "Fast, aggressive ransomware with double extortion",
+      "temporal_profile": {
+        "total_duration_minutes": [10, 30],
+        "phases": {
+          "initial_access": [0, 2],
+          "discovery": [2, 5],
+          "defense_evasion": [5, 8],
+          "exfiltration": [8, 15],
+          "encryption": [15, 30]
+        }
+      },
+      "behavioral_signatures": {
+        "process_chains": [
+          ["winword.exe", "powershell.exe", "lockbit.exe"],
+          ["chrome.exe", "cmd.exe", "rundll32.exe", "lockbit.exe"]
+        ],
+        "file_patterns": {
+          "encryption_rate": "100-200 files/second",
+          "target_extensions": [".docx", ".xlsx", ".pdf", ".jpg", ".png"],
+          "skip_folders": ["Windows", "Program Files"],
+          "entropy_change": [3.2, 7.95],
+          "renamed_extension": ".lockbit"
+        },
+        "network_patterns": {
+          "c2_communication": {
+            "protocol": "https",
+            "ports": [443, 8443],
+            "beacon_interval_seconds": [60, 300],
+            "exfiltration_size_mb": [100, 5000]
+          },
+          "lateral_movement": {
+            "protocols": ["SMB", "RDP"],
+            "ports": [445, 3389],
+            "targets": "internal_subnet"
+          }
+        },
+        "defense_evasion": [
+          "vssadmin delete shadows /all /quiet",
+          "wmic shadowcopy delete",
+          "bcdedit /set {default} recoveryenabled no",
+          "netsh advfirewall set currentprofile state off",
+          "sc stop wscsvc",
+          "powershell Set-MpPreference -DisableRealtimeMonitoring $true"
+        ]
+      }
+    },
+    "BlackCat_ALPHV": {
+      "description": "Rust-based ransomware with advanced evasion",
+      "temporal_profile": {
+        "total_duration_minutes": [20, 60],
+        "phases": {
+          "initial_access": [0, 5],
+          "privilege_escalation": [5, 10],
+          "discovery": [10, 15],
+          "exfiltration": [15, 40],
+          "encryption": [40, 60]
+        }
+      },
+      "behavioral_signatures": {
+        "process_chains": [
+          ["outlook.exe", "macro.exe", "powershell.exe", "alphv.exe"],
+          ["rdp.exe", "cmd.exe", "alphv.exe"]
+        ],
+        "file_patterns": {
+          "encryption_rate": "50-100 files/second",
+          "target_extensions": [".vmdk", ".vhdx", ".bak", ".sql"],
+          "entropy_change": [2.8, 7.99],
+          "renamed_extension": ".alphv"
+        },
+        "network_patterns": {
+          "c2_communication": {
+            "uses_tor": true,
+            "protocol": "https",
+            "ports": [443, 9001, 9030],
+            "data_staging": true
+          }
+        },
+        "unique_behaviors": [
+          "Kills VMware ESXi VMs before encryption",
+          "Uses Windows Restart Manager API",
+          "Propagates via GPO if domain admin"
+        ]
+      }
+    },
+    "Conti": {
+      "description": "Human-operated ransomware with fast encryption",
+      "temporal_profile": {
+        "total_duration_minutes": [15, 45],
+        "phases": {
+          "initial_access": [0, 3],
+          "credential_access": [3, 8],
+          "discovery": [8, 12],
+          "lateral_movement": [12, 20],
+          "encryption": [20, 45]
+        }
+      },
+      "behavioral_signatures": {
+        "process_chains": [
+          ["excel.exe", "wmic.exe", "powershell.exe", "conti.exe"],
+          ["trickbot.exe", "cobalt_strike.exe", "conti.exe"]
+        ],
+        "file_patterns": {
+          "encryption_rate": "150-250 files/second",
+          "multithreaded": true,
+          "target_priority": ["databases", "documents", "images"],
+          "entropy_change": [3.0, 7.98],
+          "renamed_extension": ".CONTI"
+        },
+        "tools_used": [
+          "mimikatz.exe",
+          "lazagne.exe",
+          "advanced_port_scanner.exe",
+          "psexec.exe"
+        ]
+      }
+    },
+    "REvil_Sodinokibi": {
+      "description": "RaaS with sophisticated evasion and double extortion",
+      "temporal_profile": {
+        "total_duration_minutes": [30, 90],
+        "phases": {
+          "initial_access": [0, 5],
+          "persistence": [5, 10],
+          "discovery": [10, 20],
+          "exfiltration": [20, 60],
+          "encryption": [60, 90]
+        }
+      },
+      "behavioral_signatures": {
+        "process_chains": [
+          ["iexplore.exe", "flash_update.exe", "powershell.exe", "revil.exe"]
+        ],
+        "file_patterns": {
+          "encryption_rate": "80-120 files/second",
+          "safe_mode_encryption": true,
+          "entropy_change": [2.5, 7.96],
+          "renamed_extension": ".[random_7chars]"
+        },
+        "registry_modifications": [
+          "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+          "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal"
+        ]
+      }
+    },
+    "Maze": {
+      "description": "Pioneer of double extortion with data theft",
+      "temporal_profile": {
+        "total_duration_minutes": [60, 180],
+        "phases": {
+          "initial_access": [0, 10],
+          "credential_harvesting": [10, 30],
+          "discovery": [30, 45],
+          "exfiltration": [45, 120],
+          "encryption": [120, 180]
+        }
+      },
+      "behavioral_signatures": {
+        "data_exfiltration": {
+          "methods": ["FTP", "HTTPS", "custom_protocol"],
+          "staging_locations": ["C:\\ProgramData\\temp", "C:\\Users\\Public"],
+          "compression": true,
+          "chunk_size_mb": [10, 100]
+        }
+      }
+    },
+    "DarkSide": {
+      "description": "Professional RaaS avoiding critical infrastructure",
+      "temporal_profile": {
+        "total_duration_minutes": [20, 60]
+      },
+      "behavioral_signatures": {
+        "target_avoidance": [
+          "hospitals",
+          "schools",
+          "government",
+          "non_profit"
+        ],
+        "language_check": {
+          "avoid_countries": ["RU", "UA", "BY", "KZ"],
+          "keyboard_layout_check": true
+        }
+      }
+    }
+  },
+  "attack_chains": {
+    "smash_and_grab": {
+      "description": "Fast encryption with no exfiltration",
+      "duration_minutes": [5, 15],
+      "steps": [
+        {"action": "initial_access", "time_offset": 0},
+        {"action": "disable_defenses", "time_offset": 2},
+        {"action": "encrypt_files", "time_offset": 5},
+        {"action": "drop_ransom_note", "time_offset": 14}
+      ]
+    },
+    "low_and_slow": {
+      "description": "Stealthy approach with long dwell time",
+      "duration_minutes": [1440, 10080],
+      "steps": [
+        {"action": "initial_access", "time_offset": 0},
+        {"action": "establish_persistence", "time_offset": 60},
+        {"action": "periodic_recon", "time_offset": 1440, "repeat": "daily"},
+        {"action": "credential_harvesting", "time_offset": 2880},
+        {"action": "data_staging", "time_offset": 7200},
+        {"action": "exfiltration", "time_offset": 8640},
+        {"action": "encrypt_files", "time_offset": 10000}
+      ]
+    },
+    "double_extortion": {
+      "description": "Exfiltrate then encrypt",
+      "duration_minutes": [60, 240],
+      "steps": [
+        {"action": "initial_access", "time_offset": 0},
+        {"action": "privilege_escalation", "time_offset": 10},
+        {"action": "discovery", "time_offset": 20},
+        {"action": "identify_valuable_data", "time_offset": 30},
+        {"action": "compress_data", "time_offset": 45},
+        {"action": "exfiltrate_data", "time_offset": 60},
+        {"action": "confirm_exfiltration", "time_offset": 150},
+        {"action": "encrypt_files", "time_offset": 180},
+        {"action": "threaten_data_leak", "time_offset": 230}
+      ]
+    },
+    "supply_chain": {
+      "description": "Compromise via trusted software",
+      "duration_minutes": [30, 120],
+      "steps": [
+        {"action": "compromise_update_server", "time_offset": 0},
+        {"action": "inject_malicious_update", "time_offset": 10},
+        {"action": "wait_for_victims", "time_offset": 20},
+        {"action": "activate_payload", "time_offset": 60},
+        {"action": "mass_encryption", "time_offset": 90}
+      ]
+    }
+  },
+  "telemetry_indicators": {
+    "high_confidence": [
+      {
+        "pattern": "vssadmin delete shadows",
+        "score": 0.95,
+        "description": "Shadow copy deletion is almost always malicious"
+      },
+      {
+        "pattern": "mass_file_entropy_increase",
+        "score": 0.9,
+        "description": "Many files changing from low to high entropy"
+      },
+      {
+        "pattern": "bcdedit_recovery_disable",
+        "score": 0.85,
+        "description": "Disabling Windows recovery options"
+      }
+    ],
+    "medium_confidence": [
+      {
+        "pattern": "powershell_encoded_command",
+        "score": 0.6,
+        "description": "Base64 encoded PowerShell commands"
+      },
+      {
+        "pattern": "unusual_network_volume",
+        "score": 0.5,
+        "description": "Large outbound transfers to unknown IPs"
+      }
+    ],
+    "low_confidence": [
+      {
+        "pattern": "file_enumeration",
+        "score": 0.3,
+        "description": "Recursive directory listing"
+      },
+      {
+        "pattern": "compression_tools",
+        "score": 0.2,
+        "description": "Use of 7zip, rar, etc."
+      }
+    ]
+  },
+  "environmental_factors": {
+    "time_of_attack": {
+      "preferred_days": ["Friday", "Saturday", "Holiday_eve"],
+      "preferred_hours": ["02:00-05:00", "18:00-22:00"],
+      "reason": "Reduced security team presence"
+    },
+    "target_selection": {
+      "high_value": ["Finance", "Healthcare", "Manufacturing", "Legal"],
+      "avoided": ["Military", "Critical_infrastructure", "Children_hospitals"]
+    }
+  },
+  "countermeasures": {
+    "detection_evasion": [
+      "Process hollowing",
+      "Living off the land (LOLBins)",
+      "Timestomping",
+      "Log deletion",
+      "Anti-VM checks",
+      "Anti-sandbox checks",
+      "String obfuscation",
+      "API hashing"
+    ],
+    "persistence_mechanisms": [
+      "Registry Run keys",
+      "Scheduled tasks",
+      "WMI event subscriptions",
+      "Service creation",
+      "DLL hijacking",
+      "Bootkit/Rootkit"
+    ]
+  }
+}

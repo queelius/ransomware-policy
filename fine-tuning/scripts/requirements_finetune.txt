@@ -1,0 +1,22 @@
+# Requirements for fine-tuning LLM for ransomware detection
+
+# Core dependencies
+torch>=2.0.0
+transformers>=4.36.0
+datasets>=2.14.0
+accelerate>=0.25.0
+peft>=0.7.0  # Parameter-Efficient Fine-Tuning (LoRA)
+bitsandbytes>=0.41.0  # For 4-bit quantization
+evaluate>=0.4.0
+
+# For data processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Optional but recommended
+tensorboard>=2.14.0
+wandb>=0.15.0  # For experiment tracking
+
+# For notebook experimentation
+jupyter>=1.0.0
+ipywidgets>=8.0.0

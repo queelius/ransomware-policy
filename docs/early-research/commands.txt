@@ -1,0 +1,24 @@
+sudo apt-get install suricata
+sudo suricata -i enp3s0 -c /etc/suricata/suricata.yaml -D
+ 1846  sudo suricata -i enp3s0 -c /etc/suricata/suricata.yaml -Dip link show
+ 1847  sudo suricata -i enp3s0 -c /etc/suricata/suricata.yaml -D
+ 1849  sudo suricata -i enp3s0 -c /etc/suricata/suricata.yaml -D
+ 1851  sudo suricata -i enp3s0 -c /etc/suricata/suricata.yaml -D
+ 1853  sudo rm /var/run/suricata.pid
+ 1854  sudo suricata -i enp3s0 -c /etc/suricata/suricata.yaml -D
+ 1857  jq '. | select(.event_type == "alert")' /var/log/suricata/eve.json
+ 1858  cat /var/log/suricata/fast.log
+ 1859  tail -f /var/log/suricata/eve.json
+ 1862  sudo ausearch -k ransomware-watch
+ 1863  sudo auditctl -w /home/spinoza/github/fuj/data -p rwxa -k ransomware-watch
+ 1865  echo "This is a testsudo ausearch -k ransomware-watch!" > data/this_test.txt
+ 1866  cat data/this_test.txt 
+ 1870  sudo ausearch -k ransomware-watch | grep "this_test"
+ 1871  sudo auditctl -w /home/spinoza/github/fuj/data -p rwxa -k ransomware-watch
+ 1872  sudo auditctl -a always,exit -S open -S write -S unlink -S execve -F dir=/home/spinoza/github/fuj/data -k ransomware-watch
+ 1873  sudo auditctl -w /home/spinoza/github/fuj/data -p rwxa -k ransomware-watch
+ 1874  sudo auditctl -a always,exit -S open -S write -S unlink -S execve -F dir=/home/spinoza/github/fuj/data -k ransomware-watch
+ 1876  echo "another test" > data/another_test.txt
+ 1877  sudo ausearch -k ransomware-watch | grep "another_test"
+ 1878  iostat
+ 1879  iotop
