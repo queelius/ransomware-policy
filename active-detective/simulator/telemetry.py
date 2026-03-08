@@ -6,8 +6,8 @@ to simulate partial observability, and formats into text for the agent.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
 import numpy as np
 
@@ -35,6 +35,7 @@ class Episode:
     observability: float
     raw_event_count: int
     visible_event_count: int
+    history_windows: list[str] = field(default_factory=list)
 
 
 def apply_observability_filter(
@@ -111,57 +112,118 @@ def format_telemetry_window(events: list[TelemetryEvent], window_start: datetime
     return "\n".join(lines)
 
 
+_ATTACK_GENERATORS = {
+    ScenarioType.BLITZ: gen.blitz_encryptor,
+    ScenarioType.SLEEPER: gen.slow_sleeper,
+    ScenarioType.EXFIL_FIRST: gen.exfil_first,
+    ScenarioType.SEMANTIC_SHUFFLE: gen.semantic_shuffle,
+}
+
+_BENIGN_GENERATORS = [gen.office_edits, gen.browser_downloads,
+                      gen.system_maintenance]
+
+_EXTRA_BENIGN_GENERATORS = [gen.backup_operations, gen.av_scan]
+
+
+def _generate_window(
+    scenario_type: ScenarioType,
+    observability: float,
+    rng: np.random.RandomState,
+    window_time: datetime,
+    attack_progress: float,
+) -> tuple[str, str | None]:
+    """Generate a single telemetry window and return (formatted_text, attack_phase).
+
+    Creates a fresh HostState, runs benign background + scenario generators,
+    applies observability filter, and formats the result.
+    """
+    host = HostState.create(rng, window_time)
+    all_events: list[TelemetryEvent] = []
+    attack_phase: str | None = None
+
+    # Always generate some benign background activity
+    n_benign = rng.randint(1, 3)
+    chosen_benign = rng.choice(len(_BENIGN_GENERATORS), size=n_benign, replace=False)
+    for idx in chosen_benign:
+        all_events.extend(_BENIGN_GENERATORS[idx](host, rng))
+
+    # Add scenario-specific events
+    if scenario_type == ScenarioType.BENIGN:
+        if rng.random() < 0.4:
+            gen_fn = _EXTRA_BENIGN_GENERATORS[rng.randint(0, len(_EXTRA_BENIGN_GENERATORS))]
+            all_events.extend(gen_fn(host, rng))
+    elif scenario_type in _ATTACK_GENERATORS:
+        events, attack_phase = _ATTACK_GENERATORS[scenario_type](
+            host, rng, progress=attack_progress)
+        all_events.extend(events)
+    else:
+        raise ValueError(f"Unknown scenario type: {scenario_type}")
+
+    # Apply observability filter
+    visible_events = apply_observability_filter(all_events, observability, rng)
+
+    # Format into text
+    window_text = format_telemetry_window(visible_events, window_time)
+    return window_text, attack_phase
+
+
 def generate_episode(
     scenario_type: ScenarioType,
     observability: float,
     rng: np.random.RandomState,
     now: datetime | None = None,
     attack_progress: float = 0.5,
+    n_history: int = 2,
 ) -> Episode:
-    """Generate a single episode with telemetry window.
+    """Generate a single episode with telemetry window and history.
 
     Seeds a full host state, runs generators for one window, applies
     observability filter, and returns formatted episode.
+
+    When ``n_history > 0``, generates prior telemetry windows at
+    earlier timestamps and lower attack progress to give the agent
+    temporal context.
     """
     now = now or datetime(2025, 6, 15, 10, 0, 0)
 
-    # Set up host state
+    # ── Generate history windows (earliest first) ───────────────────
+    history_windows: list[str] = []
+    for i in range(n_history):
+        # Each history window is 120 seconds earlier than the next
+        window_time = now - timedelta(seconds=120 * (n_history - i))
+
+        if scenario_type == ScenarioType.BENIGN:
+            hist_progress = 0.0
+        else:
+            # Linearly-spaced earlier progress values
+            hist_progress = attack_progress * (i + 1) / (n_history + 1)
+
+        hist_text, _ = _generate_window(
+            scenario_type, observability, rng, window_time, hist_progress)
+        history_windows.append(hist_text)
+
+    # ── Generate the current window (existing logic) ────────────────
     host = HostState.create(rng, now)
 
     all_events: list[TelemetryEvent] = []
     attack_phase: str | None = None
 
     # Always generate some benign background activity
-    benign_generators = [gen.office_edits, gen.browser_downloads,
-                         gen.system_maintenance]
-    # Pick 1-2 benign generators
     n_benign = rng.randint(1, 3)
-    chosen_benign = rng.choice(len(benign_generators), size=n_benign, replace=False)
+    chosen_benign = rng.choice(len(_BENIGN_GENERATORS), size=n_benign, replace=False)
     for idx in chosen_benign:
-        all_events.extend(benign_generators[idx](host, rng))
+        all_events.extend(_BENIGN_GENERATORS[idx](host, rng))
 
     # Add attack-specific events
     if scenario_type == ScenarioType.BENIGN:
         # Add more benign activity for realism
-        extra = [gen.backup_operations, gen.av_scan]
         if rng.random() < 0.4:
-            gen_fn = extra[rng.randint(0, len(extra))]
+            gen_fn = _EXTRA_BENIGN_GENERATORS[rng.randint(0, len(_EXTRA_BENIGN_GENERATORS))]
             all_events.extend(gen_fn(host, rng))
         is_ransomware = False
-    elif scenario_type == ScenarioType.BLITZ:
-        events, attack_phase = gen.blitz_encryptor(host, rng, progress=attack_progress)
-        all_events.extend(events)
-        is_ransomware = True
-    elif scenario_type == ScenarioType.SLEEPER:
-        events, attack_phase = gen.slow_sleeper(host, rng, progress=attack_progress)
-        all_events.extend(events)
-        is_ransomware = True
-    elif scenario_type == ScenarioType.EXFIL_FIRST:
-        events, attack_phase = gen.exfil_first(host, rng, progress=attack_progress)
-        all_events.extend(events)
-        is_ransomware = True
-    elif scenario_type == ScenarioType.SEMANTIC_SHUFFLE:
-        events, attack_phase = gen.semantic_shuffle(host, rng, progress=attack_progress)
+    elif scenario_type in _ATTACK_GENERATORS:
+        events, attack_phase = _ATTACK_GENERATORS[scenario_type](
+            host, rng, progress=attack_progress)
         all_events.extend(events)
         is_ransomware = True
     else:
@@ -188,4 +250,5 @@ def generate_episode(
         observability=observability,
         raw_event_count=raw_count,
         visible_event_count=len(visible_events),
+        history_windows=history_windows,
     )

@@ -176,3 +176,49 @@ class TestGenerateEpisode:
         ep1 = generate_episode(ScenarioType.BENIGN, 0.5, np.random.RandomState(42))
         ep2 = generate_episode(ScenarioType.BENIGN, 0.5, np.random.RandomState(42))
         assert ep1.input_text == ep2.input_text
+
+
+class TestMultiWindowGeneration:
+    def test_returns_history_windows(self):
+        rng = np.random.RandomState(42)
+        episode = generate_episode(
+            ScenarioType.BLITZ, 0.8, rng, attack_progress=0.6, n_history=2)
+        assert len(episode.history_windows) == 2
+        assert isinstance(episode.history_windows[0], str)
+        assert len(episode.history_windows[0]) > 0
+
+    def test_benign_has_history(self):
+        rng = np.random.RandomState(42)
+        episode = generate_episode(
+            ScenarioType.BENIGN, 0.8, rng, n_history=2)
+        assert len(episode.history_windows) == 2
+
+    def test_zero_history(self):
+        rng = np.random.RandomState(42)
+        episode = generate_episode(
+            ScenarioType.BLITZ, 0.8, rng, attack_progress=0.6, n_history=0)
+        assert episode.history_windows == []
+
+    def test_default_history_is_two(self):
+        rng = np.random.RandomState(42)
+        episode = generate_episode(
+            ScenarioType.BLITZ, 0.8, rng, attack_progress=0.6)
+        assert len(episode.history_windows) == 2
+
+    def test_history_progress_increases(self):
+        """History windows should represent earlier attack stages."""
+        rng = np.random.RandomState(42)
+        episode = generate_episode(
+            ScenarioType.BLITZ, 0.8, rng, attack_progress=0.6, n_history=2)
+        # History windows exist and are different from each other
+        assert episode.history_windows[0] != episode.history_windows[1]
+
+    def test_reproducible_with_seed(self):
+        ep1 = generate_episode(
+            ScenarioType.BLITZ, 0.8, np.random.RandomState(42),
+            attack_progress=0.6, n_history=2)
+        ep2 = generate_episode(
+            ScenarioType.BLITZ, 0.8, np.random.RandomState(42),
+            attack_progress=0.6, n_history=2)
+        assert ep1.history_windows == ep2.history_windows
+        assert ep1.input_text == ep2.input_text
