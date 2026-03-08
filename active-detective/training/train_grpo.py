@@ -34,7 +34,6 @@ from simulator.host import HostState
 from simulator.models import GroundTruth, ScenarioType, Verdict
 from simulator.telemetry import generate_episode
 from tools.inspection import TOOL_COSTS, VALID_VERDICTS
-from tools.memory import MemoryStore
 from training.prompts import build_system_prompt
 from training.scenarios import generate_training_scenarios, save_scenarios
 
@@ -83,12 +82,11 @@ class DetectionEnv:
     """TRL-compatible environment for ransomware detection.
 
     Public methods (inspect_file, check_process, scan_directory,
-    recall_memory, decide) are exposed as tools by GRPOTrainer.
+    decide, etc.) are exposed as tools by GRPOTrainer.
     """
 
     def __init__(self) -> None:
         self._host: HostState | None = None
-        self._memory: MemoryStore | None = None
         self._ground_truth: GroundTruth | None = None
         self._steps: int = 0
         self._cumulative_cost: float = 0.0
@@ -107,7 +105,6 @@ class DetectionEnv:
         observability = scenario_data.get("observability", 0.5)
         attack_progress = scenario_data.get("attack_progress", 0.5)
         seed = scenario_data.get("seed", 42)
-        history_windows = scenario_data.get("history_windows", [])
 
         rng = np.random.RandomState(seed)
 
@@ -123,11 +120,6 @@ class DetectionEnv:
         now = datetime(2025, 6, 15, 10, 0, 0)
         host_rng = np.random.RandomState(rng.randint(0, 2**31))
         self._host = HostState.create(host_rng, now)
-
-        # Initialize memory
-        self._memory = MemoryStore(top_k=3)
-        for i, window_text in enumerate(history_windows):
-            self._memory.add_window(window_text, {"window_id": f"hist-{i}"})
 
         # Reset counters
         self._steps = 0
@@ -217,21 +209,6 @@ class DetectionEnv:
                 for f in files
             ]
         })
-
-    def recall_memory(self, query: str) -> str:
-        """Search past telemetry windows by similarity to find relevant historical context.
-
-        Args:
-            query: Natural language description of what to search for.
-
-        Returns:
-            JSON string with top matching historical windows and similarity scores.
-        """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["recall_memory"]
-
-        matches = self._memory.recall(query)
-        return json.dumps({"matches": matches})
 
     def list_connections(self, filter_state: str = "") -> str:
         """List active network connections, optionally filtered by state.

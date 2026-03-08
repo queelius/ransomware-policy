@@ -303,11 +303,11 @@ class TestRolloutTraceInspection:
             assert step.result_text.startswith("<tool_result>")
             assert step.result_text.endswith("</tool_result>")
 
-    def test_recall_memory_in_rollout(self):
+    def test_recall_memory_returns_error_in_rollout(self):
+        """recall_memory was removed — verify it returns an unknown-tool error."""
         env = RansomwareDetectionEnv(max_steps=5)
         rng = np.random.RandomState(42)
-        history = ["Entropy spike on multiple docx files detected"]
-        env.reset(ScenarioType.BLITZ, 0.9, rng, history_windows=history)
+        env.reset(ScenarioType.BLITZ, 0.9, rng)
 
         turns = [
             '<tool_call>recall_memory("entropy spike")</tool_call>',
@@ -316,4 +316,5 @@ class TestRolloutTraceInspection:
         rollout = run_mock_rollout(env, turns)
 
         assert rollout.steps[0].tool_name == "recall_memory"
-        assert "matches" in rollout.steps[0].result
+        assert "error" in rollout.steps[0].result
+        assert "Unknown tool" in rollout.steps[0].result["error"]

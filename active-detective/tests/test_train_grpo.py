@@ -74,27 +74,6 @@ class TestDetectionEnv:
         data = json.loads(result)
         assert "files" in data
 
-    def test_recall_memory_empty(self):
-        env = DetectionEnv()
-        env.reset(scenario_data=self._make_scenario_data())
-        result = env.recall_memory("entropy spike")
-        data = json.loads(result)
-        assert data["matches"] == []
-
-    def test_recall_memory_with_history(self):
-        env = DetectionEnv()
-        scenario = json.dumps({
-            "scenario_type": "benign",
-            "observability": 0.8,
-            "attack_progress": 0.0,
-            "seed": 42,
-            "history_windows": ["High entropy spike on multiple files"],
-        })
-        env.reset(scenario_data=scenario)
-        result = env.recall_memory("entropy spike")
-        data = json.loads(result)
-        assert len(data["matches"]) > 0
-
     def test_decide_valid(self):
         env = DetectionEnv()
         env.reset(scenario_data=self._make_scenario_data())
@@ -228,7 +207,6 @@ class TestDetectionEnvMultiStep:
 
         # Investigate
         env.scan_directory("C:/Users/A/Documents")
-        env.recall_memory("entropy spike encryption")
 
         # Decide
         env.decide("quarantine", "Active ransomware detected")

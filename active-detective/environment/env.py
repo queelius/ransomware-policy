@@ -15,7 +15,6 @@ from simulator.host import HostState
 from simulator.models import GroundTruth, ScenarioType
 from simulator.telemetry import Episode, generate_episode
 from tools.inspection import TOOL_COSTS, VALID_VERDICTS, execute_tool
-from tools.memory import MemoryStore
 from tools.parser import (
     ParsedToolCall,
     extract_thinking,
@@ -72,15 +71,12 @@ class RansomwareDetectionEnv:
     def __init__(
         self,
         max_steps: int = 5,
-        memory_top_k: int = 3,
     ) -> None:
         self.max_steps = max_steps
-        self.memory_top_k = memory_top_k
 
         # State set by reset()
         self._episode: Episode | None = None
         self._host: HostState | None = None
-        self._memory: MemoryStore | None = None
         self._steps: list[StepResult] = []
         self._cumulative_cost: float = 0.0
         self._has_thinking: bool = False
@@ -138,12 +134,6 @@ class RansomwareDetectionEnv:
         now = datetime(2025, 6, 15, 10, 0, 0)
         host_rng = np.random.RandomState(rng.randint(0, 2**31))
         self._host = HostState.create(host_rng, now)
-
-        # Initialize memory store with optional history
-        self._memory = MemoryStore(top_k=self.memory_top_k)
-        if history_windows:
-            for i, window_text in enumerate(history_windows):
-                self._memory.add_window(window_text, {"window_id": f"hist-{i}"})
 
         # Reset rollout state
         self._steps = []
