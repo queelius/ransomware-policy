@@ -17,6 +17,13 @@ class TestBuildSystemPrompt:
         for tool_name in TOOL_DESCRIPTIONS:
             assert tool_name in prompt
 
+    def test_recall_memory_not_in_tool_descriptions(self):
+        assert "recall_memory" not in TOOL_DESCRIPTIONS
+
+    def test_default_prompt_excludes_recall_memory(self):
+        prompt = build_system_prompt()
+        assert "recall_memory" not in prompt
+
     def test_default_includes_decide(self):
         prompt = build_system_prompt()
         assert "DECIDE" in prompt
@@ -30,11 +37,11 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(k_max=10)
         assert "10" in prompt
 
-    def test_tool_ablation_excludes_recall(self):
+    def test_tool_ablation_subset(self):
         tools = ["inspect_file", "check_process", "scan_directory"]
         prompt = build_system_prompt(available_tools=tools)
         assert "inspect_file" in prompt
-        assert "recall_memory" not in prompt
+        assert "list_connections" not in prompt
 
     def test_tool_ablation_single_tool(self):
         prompt = build_system_prompt(available_tools=["inspect_file"])

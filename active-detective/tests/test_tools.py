@@ -269,11 +269,14 @@ class TestToolCosts:
     def test_all_tools_have_costs(self):
         expected_tools = {
             "inspect_file", "check_process", "scan_directory",
-            "recall_memory", "list_connections", "inspect_connection",
+            "list_connections", "inspect_connection",
             "query_registry", "list_process_handles", "query_event_log",
             "read_file_sample", "DECIDE",
         }
         assert set(TOOL_COSTS.keys()) == expected_tools
+
+    def test_recall_memory_not_in_tool_costs(self):
+        assert "recall_memory" not in TOOL_COSTS
 
     def test_decide_is_free(self):
         assert TOOL_COSTS["DECIDE"] == 0.0
@@ -326,13 +329,6 @@ class TestParseToolCallFunction:
         assert result is not None
         assert result.tool_name == "check_process"
         assert result.args["pid"] == 1234
-
-    def test_recall_memory(self):
-        text = '<tool_call>recall_memory("entropy spike file encryption")</tool_call>'
-        result = parse_tool_call(text)
-        assert result is not None
-        assert result.tool_name == "recall_memory"
-        assert result.args["query"] == "entropy spike file encryption"
 
     def test_new_tools_parse(self):
         """Verify the 6 new tools parse correctly."""

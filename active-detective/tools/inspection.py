@@ -14,7 +14,6 @@ TOOL_COSTS: dict[str, float] = {
     "inspect_file": -0.02,
     "check_process": -0.02,
     "scan_directory": -0.05,
-    "recall_memory": -0.03,
     "list_connections": -0.03,
     "inspect_connection": -0.03,
     "query_registry": -0.03,
@@ -91,12 +90,10 @@ def execute_tool(
     tool_name: str,
     args: dict,
     host: HostState,
-    memory_store: object | None = None,
 ) -> tuple[dict, float]:
     """Execute a tool by name and return (result_dict, cost).
 
     Dispatches to the appropriate tool function.
-    The memory_store parameter is used for recall_memory (implemented in tools/memory.py).
     """
     if tool_name == "inspect_file":
         path = args.get("path", "")
@@ -111,14 +108,6 @@ def execute_tool(
     elif tool_name == "scan_directory":
         path = args.get("path", "")
         return scan_directory(host.files, path), TOOL_COSTS["scan_directory"]
-
-    elif tool_name == "recall_memory":
-        if memory_store is None:
-            return {"matches": [], "note": "Memory store not available"}, \
-                   TOOL_COSTS["recall_memory"]
-        query = args.get("query", "")
-        from tools.memory import recall_memory
-        return recall_memory(memory_store, query), TOOL_COSTS["recall_memory"]
 
     elif tool_name == "list_connections":
         from tools.network_tools import list_connections

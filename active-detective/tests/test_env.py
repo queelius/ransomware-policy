@@ -141,29 +141,17 @@ class TestStepFromText:
         assert result.tool_name == "check_process"
 
 
-class TestRecallMemory:
-    def test_recall_with_history(self, env, rng):
-        history = ["High entropy spike on documents folder",
-                    "Normal browser activity downloading PDFs"]
-        env.reset(ScenarioType.BLITZ, 0.7, rng, history_windows=history)
-
+class TestRecallMemoryRemoved:
+    def test_recall_memory_returns_unknown_tool_error(self, env, rng):
+        env.reset(ScenarioType.BENIGN, 0.9, rng)
         call = ParsedToolCall(
             tool_name="recall_memory",
             args={"query": "entropy spike"},
             raw_text='recall_memory("entropy spike")',
         )
         result = env.step(call)
-        assert "matches" in result.result
-
-    def test_recall_without_history(self, env, rng):
-        env.reset(ScenarioType.BENIGN, 0.9, rng)
-        call = ParsedToolCall(
-            tool_name="recall_memory",
-            args={"query": "anything"},
-            raw_text='recall_memory("anything")',
-        )
-        result = env.step(call)
-        assert result.result["matches"] == []
+        assert "error" in result.result
+        assert "Unknown tool" in result.result["error"]
 
 
 class TestFinish:

@@ -21,10 +21,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "scan_directory(path) — List files in a directory with metadata. "
         "More expensive but reveals more information."
     ),
-    "recall_memory": (
-        "recall_memory(query) — Search past telemetry windows by similarity. "
-        "Returns the most relevant historical observations."
-    ),
     "list_connections": (
         "list_connections(filter?) — List active network connections. "
         "Returns conn_id, pid, remote address, protocol, state, bytes transferred."
@@ -104,7 +100,7 @@ def build_system_prompt(
         Maximum investigation steps (tool calls) allowed.
     available_tools:
         Subset of tool names to include. None means all tools.
-        Use for ablation studies (e.g., exclude "recall_memory").
+        Use for ablation studies (e.g., exclude "scan_directory").
     """
     if available_tools is None:
         available_tools = list(TOOL_DESCRIPTIONS.keys())

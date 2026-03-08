@@ -173,10 +173,7 @@ class RansomwareDetectionEnv:
         self._has_tool_call = True
 
         # Execute the tool
-        result, cost = execute_tool(
-            tool_name, args,
-            self._host, self._memory,
-        )
+        result, cost = execute_tool(tool_name, args, self._host)
         self._cumulative_cost += cost
 
         # Check for terminal DECIDE action

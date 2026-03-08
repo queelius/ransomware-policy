@@ -114,7 +114,6 @@ def _try_function_format(raw: str) -> tuple[str, dict] | None:
     - DECIDE("quarantine", "explanation text")
     - inspect_file("C:/path/to/file.docx")
     - check_process(1234)
-    - recall_memory("entropy spike")
     """
     match = _FUNC_CALL_PATTERN.match(raw)
     if not match:
@@ -174,7 +173,6 @@ def _map_positional_args(tool_name: str, values: list) -> dict:
         "inspect_file": ["path"],
         "check_process": ["pid"],
         "scan_directory": ["path"],
-        "recall_memory": ["query"],
         "list_connections": ["filter"],
         "inspect_connection": ["conn_id"],
         "query_registry": ["key_path"],
