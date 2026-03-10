@@ -222,3 +222,25 @@ class TestMultiWindowGeneration:
             attack_progress=0.6, n_history=2)
         assert ep1.history_windows == ep2.history_windows
         assert ep1.input_text == ep2.input_text
+
+
+class TestEpisodeHost:
+    def test_episode_has_host(self):
+        rng = np.random.RandomState(42)
+        episode = generate_episode(ScenarioType.BENIGN, 0.8, rng)
+        assert episode.host is not None
+        # Host should have files seeded
+        assert len(episode.host.files.all_paths()) > 0
+
+    def test_episode_host_matches_telemetry_files(self):
+        """Files mentioned in telemetry should exist in episode.host."""
+        rng = np.random.RandomState(42)
+        episode = generate_episode(ScenarioType.BLITZ, 0.9, rng, attack_progress=0.5)
+        # Extract file paths from telemetry text
+        import re
+        paths = re.findall(r'path=(C:/[^\s]+)', episode.input_text)
+        for path in paths:
+            # File should exist in the host (possibly renamed by attack)
+            # At minimum, the directory should exist
+            dir_path = path.rsplit('/', 1)[0]
+            assert dir_path in episode.host.files.directories()

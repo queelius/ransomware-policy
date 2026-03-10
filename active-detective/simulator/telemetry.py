@@ -36,6 +36,7 @@ class Episode:
     raw_event_count: int
     visible_event_count: int
     history_windows: list[str] = field(default_factory=list)
+    host: HostState | None = None
 
 
 def apply_observability_filter(
@@ -131,8 +132,8 @@ def _generate_window(
     rng: np.random.RandomState,
     window_time: datetime,
     attack_progress: float,
-) -> tuple[str, str | None]:
-    """Generate a single telemetry window and return (formatted_text, attack_phase).
+) -> tuple[str, str | None, HostState]:
+    """Generate a single telemetry window and return (formatted_text, attack_phase, host).
 
     Creates a fresh HostState, runs benign background + scenario generators,
     applies observability filter, and formats the result.
@@ -164,7 +165,7 @@ def _generate_window(
 
     # Format into text
     window_text = format_telemetry_window(visible_events, window_time)
-    return window_text, attack_phase
+    return window_text, attack_phase, host
 
 
 def generate_episode(
@@ -198,7 +199,7 @@ def generate_episode(
             # Linearly-spaced earlier progress values
             hist_progress = attack_progress * (i + 1) / (n_history + 1)
 
-        hist_text, _ = _generate_window(
+        hist_text, _, _ = _generate_window(
             scenario_type, observability, rng, window_time, hist_progress)
         history_windows.append(hist_text)
 
@@ -251,4 +252,5 @@ def generate_episode(
         raw_event_count=raw_count,
         visible_event_count=len(visible_events),
         history_windows=history_windows,
+        host=host,
     )
