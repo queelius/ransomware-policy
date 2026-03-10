@@ -167,6 +167,21 @@ class TestDetectionEnv:
         assert "error" not in result
         assert "entropy" in result
 
+    def test_reset_includes_history_windows(self):
+        """reset() should return history windows + current window."""
+        env = DetectionEnv()
+        result = env.reset(scenario_data=self._make_scenario_data(
+            "blitz", attack_progress=0.5))
+        assert "Window t-2 (prior)" in result
+        assert "Window t-1 (prior)" in result
+        assert "Current window" in result
+
+    def test_reset_no_history_when_zero(self):
+        env = DetectionEnv()
+        result = env.reset(scenario_data=self._make_scenario_data(n_history=0))
+        assert "Window t-" not in result
+        assert "Current window" not in result  # no label when no history
+
     def test_reset_clears_state(self):
         env = DetectionEnv()
         env.reset(scenario_data=self._make_scenario_data())

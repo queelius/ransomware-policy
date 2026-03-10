@@ -128,7 +128,16 @@ class DetectionEnv:
         self._verdict = None
         self._explanation = ""
 
-        # Return the telemetry window text — TRL appends it to the user message
+        # Format history + current window for the model
+        if episode.history_windows:
+            parts = []
+            n = len(episode.history_windows)
+            for i, hw in enumerate(episode.history_windows):
+                label = f"Window t-{n - i} (prior)"
+                parts.append(f"--- {label} ---\n{hw}")
+            parts.append(f"--- Current window ---\n{episode.input_text}")
+            return "\n\n".join(parts)
+
         return episode.input_text
 
     # ── Tools (public methods exposed by TRL) ────────────────────────
