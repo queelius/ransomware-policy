@@ -245,10 +245,14 @@ class TestQueryEventLog:
 
 
 class TestReadFileSample:
-    def test_file_without_contents(self, host):
+    def test_file_with_seeded_contents(self, host):
+        """seed_filesystem now populates contents, so read_file_sample works."""
         path = host.files.all_paths()[0]
         result = read_file_sample(host.files, path)
-        assert "error" in result  # no contents set
+        assert "hex" in result
+        assert "entropy" in result
+        assert "magic_bytes" in result
+        assert "error" not in result
 
     def test_file_with_contents(self):
         r = FileRegistry()

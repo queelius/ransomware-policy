@@ -11,6 +11,7 @@ from datetime import timedelta
 import numpy as np
 
 from simulator.host import HostState
+from simulator.content import corrupt_content
 from simulator.models import (
     ContentType,
     EventLogEvent,
@@ -615,6 +616,13 @@ def semantic_shuffle(
 
         # Mark as encrypted in ground truth even though it doesn't look like it
         f.is_encrypted = True
+
+        # Corrupt contents: header may survive but body is replaced
+        if f.contents is not None:
+            f.contents = corrupt_content(
+                f.contents, rng,
+                target_entropy=rng.uniform(5.0, 6.0),
+            )
 
         events.append(FileEvent(
             ts=ts, path=f.path,

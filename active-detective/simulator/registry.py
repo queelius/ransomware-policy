@@ -13,6 +13,7 @@ from typing import Iterator
 
 import numpy as np
 
+from simulator.content import encrypt_content, generate_content
 from simulator.models import ContentType, FileRecord, ProcessRecord
 
 
@@ -111,6 +112,7 @@ class FileRegistry:
         extension: str,
         content_type: ContentType,
         modified_at: datetime,
+        contents: bytes | None = None,
     ) -> FileRecord:
         record = FileRecord(
             path=path,
@@ -119,6 +121,7 @@ class FileRegistry:
             extension=extension,
             modified_at=modified_at,
             content_type=content_type,
+            contents=contents,
         )
         self._files[path] = record
         return record
@@ -146,6 +149,9 @@ class FileRegistry:
         # Encrypted files are padded to block boundary
         record.size = int(math.ceil(record.size / 16) * 16) + rng.randint(0, 256)
         record.modified_at = now
+        # Replace contents with encrypted (near-max entropy) bytes
+        content_size = min(record.size, 1024)
+        record.contents = encrypt_content(content_size, rng)
 
         # Update the registry with new path if extension changed
         old_path = path
@@ -171,6 +177,15 @@ class FileRegistry:
         record.size = max(1, record.size + size_delta)
         record.entropy = max(0.0, min(8.0, record.entropy + entropy_delta))
         record.modified_at = now
+
+        # Adjust contents to reflect size change
+        if record.contents is not None and size_delta != 0:
+            if size_delta > 0:
+                record.contents = record.contents + b"\x00" * size_delta
+            else:
+                new_len = max(1, len(record.contents) + size_delta)
+                record.contents = record.contents[:new_len]
+
         return record
 
     def rename_file(self, old_path: str, new_path: str) -> FileRecord | None:
@@ -239,13 +254,17 @@ class FileRegistry:
                 filename = f"file_{file_counter:04d}{ext}"
                 path = f"{dir_path}/{filename}"
 
+                entropy = rng.uniform(entropy_lo, entropy_hi)
+                contents = generate_content(ext, entropy, rng)
+
                 self.add_file(
                     path=path,
                     size=rng.randint(size_lo, size_hi + 1),
-                    entropy=rng.uniform(entropy_lo, entropy_hi),
+                    entropy=entropy,
                     extension=ext,
                     content_type=content_type,
                     modified_at=now - _random_timedelta(rng, max_days=30),
+                    contents=contents,
                 )
                 file_counter += 1
 
