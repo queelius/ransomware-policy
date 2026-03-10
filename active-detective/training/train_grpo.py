@@ -118,11 +118,9 @@ class DetectionEnv:
         )
         self._ground_truth = episode.ground_truth
 
-        # Set up host state for tool execution
-        from datetime import datetime
-        now = datetime(2025, 6, 15, 10, 0, 0)
-        host_rng = np.random.RandomState(rng.randint(0, 2**31))
-        self._host = HostState.create(host_rng, now)
+        # Use the episode's host for tool execution — ensures tools
+        # query the same state that generated the telemetry.
+        self._host = episode.host
 
         # Reset counters
         self._steps = 0

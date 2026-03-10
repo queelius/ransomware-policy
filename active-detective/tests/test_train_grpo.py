@@ -154,6 +154,19 @@ class TestDetectionEnv:
         expected = -0.02 + -0.02 + -0.05
         assert abs(env._cumulative_cost - expected) < 1e-9
 
+    def test_host_from_episode(self):
+        """DetectionEnv should use episode's host, not a fresh one."""
+        env = DetectionEnv()
+        env.reset(scenario_data=self._make_scenario_data())
+        # The host should be the episode's host
+        assert env._host is not None
+        # Inspect a file that exists — should get real data, not error
+        paths = env._host.files.all_paths()
+        assert len(paths) > 0
+        result = json.loads(env.inspect_file(paths[0]))
+        assert "error" not in result
+        assert "entropy" in result
+
     def test_reset_clears_state(self):
         env = DetectionEnv()
         env.reset(scenario_data=self._make_scenario_data())

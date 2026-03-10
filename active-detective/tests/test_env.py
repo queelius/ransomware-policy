@@ -227,6 +227,13 @@ class TestFinish:
         assert abs(rollout.reward.format_reward - 0.10) < 1e-9
 
 
+class TestHostCoupling:
+    def test_tool_host_matches_episode_host(self, env, rng):
+        """The host used for tools should be the same one that generated telemetry."""
+        env.reset(ScenarioType.BENIGN, 0.9, rng)
+        assert env._host is env._episode.host
+
+
 class TestRolloutResult:
     def test_steps_tracked(self, env, rng):
         env.reset(ScenarioType.BENIGN, 0.9, rng)
