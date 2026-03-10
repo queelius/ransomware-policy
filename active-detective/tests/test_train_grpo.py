@@ -299,6 +299,32 @@ class TestComputeEnvReward:
         env_expensive = self._make_env("benign", False, "ignore", steps=1, cost=-0.1)
         assert _compute_env_reward(env_cheap) > _compute_env_reward(env_expensive)
 
+    def test_k_max_from_env(self):
+        """_compute_env_reward should respect env._k_max, not hardcode 5."""
+        env = DetectionEnv(k_max=10)
+        env._ground_truth = GroundTruth(
+            scenario_type=ScenarioType.BENIGN,
+            is_ransomware=False,
+        )
+        env._verdict = "ignore"
+        env._steps = 1
+        env._cumulative_cost = 0.0
+        r = _compute_env_reward(env)
+
+        # Compare against what k_max=5 would give
+        env5 = DetectionEnv(k_max=5)
+        env5._ground_truth = GroundTruth(
+            scenario_type=ScenarioType.BENIGN,
+            is_ransomware=False,
+        )
+        env5._verdict = "ignore"
+        env5._steps = 1
+        env5._cumulative_cost = 0.0
+        r5 = _compute_env_reward(env5)
+
+        # k_max=10 with 1 step should give more efficiency bonus than k_max=5
+        assert r > r5
+
 
 class TestDetectionReward:
     def test_batch_reward(self):
@@ -321,7 +347,7 @@ class TestDetectionReward:
 
 class TestFormatReward:
     def test_both_thinking_and_tool_call(self):
-        completions = ["<think>Analysis</think> decision made tool_call"]
+        completions = ["<think>Analysis</think> <tool_call>DECIDE(\"ignore\")</tool_call>"]
         rewards = format_reward(completions)
         assert rewards[0] == 0.1  # both thinking + tool_call
 
@@ -329,6 +355,12 @@ class TestFormatReward:
         completions = ["<think>Analysis</think> no tools used"]
         rewards = format_reward(completions)
         assert rewards[0] == 0.05
+
+    def test_decide_in_prose_not_rewarded(self):
+        """Natural language 'decide' shouldn't count as tool call."""
+        completions = ["I need to decide what to do here."]
+        rewards = format_reward(completions)
+        assert rewards[0] == 0.0  # no format reward
 
     def test_no_format(self):
         completions = ["Random gibberish output"]

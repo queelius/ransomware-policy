@@ -86,7 +86,8 @@ class DetectionEnv:
     decide, etc.) are exposed as tools by GRPOTrainer.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, k_max: int = 5) -> None:
+        self._k_max = k_max
         self._host: HostState | None = None
         self._ground_truth: GroundTruth | None = None
         self._steps: int = 0
@@ -374,7 +375,7 @@ def _compute_env_reward(env: DetectionEnv) -> float:
         return -1.0  # shouldn't happen
 
     verdict = env._verdict
-    k_max = 5  # default, matches training config
+    k_max = env._k_max
 
     # ── Verdict reward (asymmetric) ──────────────────────────────
     if verdict is None:
@@ -401,7 +402,7 @@ def _compute_env_reward(env: DetectionEnv) -> float:
 
     # ── Efficiency bonus ─────────────────────────────────────────
     unused = max(0, k_max - env._steps)
-    efficiency_bonus = unused * 0.01
+    efficiency_bonus = unused * 0.05
 
     return verdict_reward + action_cost + efficiency_bonus
 
@@ -421,7 +422,7 @@ def format_reward(completions: list[str], **kwargs) -> list[float]:
             content = completion.get("content", "")
 
         has_thinking = "<think>" in content
-        has_tool_call = "tool_call" in content.lower() or "decide" in content.lower()
+        has_tool_call = "<tool_call>" in content
 
         score = 0.0
         if has_thinking:
@@ -614,7 +615,7 @@ def train(config: TrainingConfig) -> None:
         processing_class=tokenizer,
         train_dataset=hf_dataset,
         reward_funcs=[detection_reward, format_reward],
-        environment_factory=DetectionEnv,
+        environment_factory=lambda: DetectionEnv(k_max=config.k_max),
     )
 
     logger.info("Starting GRPO training with multi-step environment rollouts...")
