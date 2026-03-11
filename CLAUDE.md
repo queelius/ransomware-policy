@@ -85,7 +85,7 @@ python prompts/detection_prompts.py  # runs demo with sample telemetry window
 The main research contribution. An LLM agent trained via GRPO to actively investigate ransomware by selecting which host evidence to examine.
 
 ### Architecture
-- **Simulator** (`simulator/`): HostState with FileRegistry (mutable filesystem + contents) + ProcessTable (processes + handles/modules), 5 benign generators, 4 attack generators (blitz, sleeper, exfil-first, semantic shuffle), observability filter
+- **Simulator** (`simulator/`): HostState with FileRegistry (mutable filesystem + synthetic file contents via `content.py`) + ProcessTable (processes + handles/modules), 5 benign generators, 4 attack generators (blitz, sleeper, exfil-first, semantic shuffle), observability filter
 - **Tools** (`tools/`): 9 investigation tools (inspect_file, check_process, scan_directory, list_connections, inspect_connection, query_registry, list_process_handles, query_event_log, read_file_sample) + DECIDE verdict action; dual-format parser (Qwen3 JSON + function-call syntax)
 - **Environment** (`environment/`): RansomwareDetectionEnv (frozen-snapshot HostState, multi-window history), RLVR reward (asymmetric: FN=-2, FP=-1, correct=+1), budget enforcement and cost accumulation
 - **Training** (`training/`): GRPO via TRL's `environment_factory` for real multi-step rollouts, QLoRA (4-bit NF4, r=16), Qwen3-8B base
@@ -95,7 +95,7 @@ The main research contribution. An LLM agent trained via GRPO to actively invest
 ```bash
 cd active-detective
 
-# Run tests (368 tests)
+# Run tests (408 tests)
 python -m pytest tests/ -q
 
 # Run specific test file
@@ -111,13 +111,18 @@ accelerate launch -m training.train_grpo --model Qwen/Qwen3-8B --output-dir ./ch
 ### Temporal model
 Each episode generates a frozen HostState snapshot at a given attack progress level. Prior telemetry windows (default 2) are generated at earlier progress values to provide temporal context. The agent sees passive telemetry (path, size_delta, ext_change, pid) but must use tools to discover entropy, file contents, and other forensic details.
 
+### Host coupling
+The Episode dataclass carries the HostState that generated its telemetry. Both environments (`RansomwareDetectionEnv` and training `DetectionEnv`) use `episode.host` for tool execution, ensuring the agent inspects the same host that produced the telemetry it sees. History windows are formatted into the training prompt via `--- Window t-N (prior) ---` labels.
+
 ### Design docs
 - System design: `docs/plans/2026-03-05-active-detective-system-design.md`
 - POMDP environment design: `docs/plans/2026-03-07-pomdp-environment-design.md`
+- Pre-training audit: `docs/plans/2026-03-09-pre-training-audit-design.md`
 
 ## Current status and next priorities
 
-- Active Detective: Full pipeline implemented (368 tests), POMDP environment with frozen snapshots + multi-window history, ready for GPU training
+- Active Detective: Full pipeline implemented (408 tests), POMDP environment with frozen snapshots + multi-window history, host-coupled tool execution, synthetic file contents for forensics, ready for GPU training
+- Pre-training audit complete: fixed host state mismatch, dead history windows in training, weak efficiency signal (0.05/step), format_reward false positives, hardcoded k_max
 - Next: run GRPO training on Vast.ai A100, evaluate against baselines, tool ablation study
 - Fine-tuning pipeline (older approach) structurally complete but superseded by active-detective
 
