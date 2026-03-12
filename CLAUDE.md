@@ -88,7 +88,7 @@ The main research contribution. An LLM agent trained via GRPO to actively invest
 - **Simulator** (`simulator/`): HostState with FileRegistry (mutable filesystem + synthetic file contents via `content.py`) + ProcessTable (processes + handles/modules), 5 benign generators, 4 attack generators (blitz, sleeper, exfil-first, semantic shuffle), observability filter
 - **Tools** (`tools/`): 9 investigation tools (inspect_file, check_process, scan_directory, list_connections, inspect_connection, query_registry, list_process_handles, query_event_log, read_file_sample) + DECIDE verdict action; dual-format parser (Qwen3 JSON + function-call syntax)
 - **Environment** (`environment/`): RansomwareDetectionEnv (frozen-snapshot HostState, multi-window history), RLVR reward (asymmetric: FN=-2, FP=-1, correct=+1), budget enforcement and cost accumulation
-- **Training** (`training/`): GRPO via TRL's `environment_factory` for real multi-step rollouts, QLoRA (4-bit NF4, r=16), Qwen3-8B base
+- **Training** (`training/`): GRPO via TRL's `environment_factory` for real multi-step rollouts, QLoRA (4-bit NF4, r=16), Qwen3.5-9B base
 - **Evaluation** (`evaluation/`): Detection metrics, baselines (Random/Exhaustive/Heuristic), tool ablation sweep, Pareto analysis
 
 ### Commands
@@ -105,7 +105,7 @@ python -m pytest tests/test_env.py -v
 python -c "from training.scenarios import generate_training_scenarios, save_scenarios; save_scenarios(generate_training_scenarios(1000), 'scenarios.jsonl')"
 
 # Train (requires GPU + trl + transformers>=5.2.0)
-accelerate launch -m training.train_grpo --model Qwen/Qwen3-8B --output-dir ./checkpoints --n-episodes 500 --group-size 4
+accelerate launch -m training.train_grpo --model Qwen/Qwen3.5-9B --output-dir ./checkpoints --n-episodes 500 --group-size 4
 ```
 
 ### Temporal model
@@ -123,7 +123,7 @@ The Episode dataclass carries the HostState that generated its telemetry. Both e
 
 - Active Detective: Full pipeline implemented (408 tests), POMDP environment with frozen snapshots + multi-window history, host-coupled tool execution, synthetic file contents for forensics, ready for GPU training
 - Pre-training audit complete: fixed host state mismatch, dead history windows in training, weak efficiency signal (0.05/step), format_reward false positives, hardcoded k_max
-- Next: run GRPO training on Vast.ai A100, evaluate against baselines, tool ablation study
+- Next: run GRPO training on Vast.ai (RTX A5000 or similar, ~24GB VRAM sufficient), evaluate against baselines, tool ablation study
 - Fine-tuning pipeline (older approach) structurally complete but superseded by active-detective
 
 ## Papers and references

@@ -9,7 +9,7 @@ No ad-hoc hacks — TRL's environment_factory does real multi-step rollouts.
 Usage::
 
     accelerate launch -m training.train_grpo \
-        --model Qwen/Qwen3-8B \
+        --model Qwen/Qwen3.5-9B \
         --output-dir ./checkpoints \
         --n-episodes 500 \
         --group-size 4 \
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 class TrainingConfig:
     """GRPO training configuration."""
 
-    model_name: str = "Qwen/Qwen3-8B"
+    model_name: str = "Qwen/Qwen3.5-9B"
     output_dir: str = "./checkpoints"
     n_episodes: int = 500
     group_size: int = 4
@@ -636,7 +636,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Train ransomware detection agent with GRPO")
 
-    parser.add_argument("--model", default="Qwen/Qwen3-8B",
+    parser.add_argument("--model", default="Qwen/Qwen3.5-9B",
                         help="HuggingFace model name or path")
     parser.add_argument("--output-dir", default="./checkpoints",
                         help="Directory for checkpoints and logs")

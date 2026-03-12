@@ -431,7 +431,7 @@ class TestPrepareDataset:
 class TestTrainingConfig:
     def test_defaults(self):
         config = TrainingConfig()
-        assert config.model_name == "Qwen/Qwen3-8B"
+        assert config.model_name == "Qwen/Qwen3.5-9B"
         assert config.k_max == 5
         assert config.group_size == 4
         assert config.lora_r == 16
