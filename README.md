@@ -12,7 +12,7 @@ ransomware-policy/
 │   ├── environment/     # RansomwareDetectionEnv, RLVR reward
 │   ├── training/        # GRPO via TRL, scenario generation
 │   ├── evaluation/      # Metrics, baselines, ablation
-│   └── tests/           # 276 tests
+│   └── tests/           # 408 tests
 │
 ├── prompting-only/       # Comparison: zero-shot/few-shot/CoT prompting
 │   ├── telemetry/       # Telemetry generation (latent states, Atomic Red Team)
@@ -44,7 +44,7 @@ python -m pytest tests/ -q
 python -c "from training.scenarios import generate_training_scenarios, save_scenarios; save_scenarios(generate_training_scenarios(1000), 'scenarios.jsonl')"
 
 # Train (requires GPU + trl + transformers>=5.2.0)
-accelerate launch -m training.train_grpo --model Qwen/Qwen3-8B --output-dir ./checkpoints --n-episodes 500 --group-size 4
+accelerate launch -m training.train_grpo --model Qwen/Qwen3.5-9B --output-dir ./checkpoints --n-episodes 500 --group-size 4
 ```
 
 See `docs/plans/2026-03-05-active-detective-system-design.md` for the full design specification.

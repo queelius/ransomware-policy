@@ -5,7 +5,8 @@
 #   scp scripts/vastai_setup.sh root@<vast-ip>:/root/
 #   ssh root@<vast-ip> 'bash /root/vastai_setup.sh'
 #
-# Target: RTX A5000 (24GB) or any GPU with >=16GB VRAM.
+# Target: RTX A5000 (24GB) or any Ampere+ GPU with >=16GB VRAM.
+# Intended for ephemeral containers (Vast.ai, RunPod). Installs into system Python.
 # Model: Qwen/Qwen3.5-9B with QLoRA 4-bit (~6GB VRAM).
 
 set -euo pipefail
@@ -27,7 +28,7 @@ echo "[2/5] Repository cloned"
 # ── Python deps ──────────────────────────────────────────────────
 pip install -q --upgrade pip
 pip install -q \
-    "transformers>=4.51.0" \
+    "transformers>=5.2.0" \
     "trl>=0.16.0" \
     "peft>=0.15.0" \
     "bitsandbytes>=0.45.0" \
@@ -48,7 +49,7 @@ python -c "
 import torch
 if torch.cuda.is_available():
     gpu = torch.cuda.get_device_name(0)
-    vram = torch.cuda.get_device_properties(0).total_mem / 1e9
+    vram = torch.cuda.get_device_properties(0).total_memory / 1e9
     print(f'  GPU: {gpu} ({vram:.1f} GB)')
 else:
     print('  WARNING: No GPU detected!')
