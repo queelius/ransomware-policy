@@ -1,0 +1,231 @@
+# Curated data sources for ransomware domain knowledge SFT (stage 1 of 2-stage pipeline).
+# Stage 2 is GRPO RL training using the active-detective simulator.
+#
+# Schema fields:
+#   name     - human-readable identifier
+#   url      - canonical access point (verified)
+#   type     - knowledge_base | real_traces | synthetic
+#   use      - training | evaluation | both
+#   license  - SPDX identifier or plain description
+#   topics   - one or more of: ransomware_ttps, windows_internals,
+#              forensic_analysis, network_forensics, malware_samples
+#   format   - primary data format
+#   notes    - caveats, preprocessing steps, access requirements
+
+sources:
+
+  # ── Knowledge bases (SFT training) ────────────────────────────────────────
+
+  - name: "MITRE ATT&CK STIX Data (attack-stix-data)"
+    url: "https://github.com/mitre-attack/attack-stix-data"
+    type: knowledge_base
+    use: training
+    license: "Apache-2.0 (© 2020-2025 The MITRE Corporation)"
+    topics:
+      - ransomware_ttps
+      - windows_internals
+    format: json
+    notes: >
+      STIX 2.1 JSON collections for all ATT&CK domains. Focus on Enterprise
+      techniques T1486 (Data Encrypted for Impact) and T1490 (Inhibit System
+      Recovery) plus parent tactics Impact and Defense Evasion. Parse with
+      the mitreattack-python library. Older STIX 2.0 format is in
+      github.com/mitre/cti if needed.
+
+  - name: "MITRE ATT&CK Website — Enterprise Techniques"
+    url: "https://attack.mitre.org/techniques/enterprise/"
+    type: knowledge_base
+    use: training
+    license: "© 2020-2025 The MITRE Corporation, royalty-free for research"
+    topics:
+      - ransomware_ttps
+    format: text
+    notes: >
+      Scrape or use the ATT&CK Navigator export for human-readable technique
+      descriptions, procedure examples, and mitigations. Particularly useful
+      for QA-pair generation around T1486 and T1490. Check the site's
+      robots.txt before scraping; the STIX data above is the preferred
+      programmatic source.
+
+  - name: "Atomic Red Team — Test Definitions"
+    url: "https://github.com/redcanaryco/atomic-red-team"
+    type: knowledge_base
+    use: training
+    license: "MIT (© Red Canary, Inc. 2018)"
+    topics:
+      - ransomware_ttps
+      - windows_internals
+    format: "yaml"
+    notes: >
+      YAML test definitions under atomics/ keyed by ATT&CK technique ID.
+      Each definition includes command strings, input arguments, and
+      executor type (cmd/powershell/bash). Useful for grounding the model
+      in concrete adversary commands; T1490.md and T1486 atomics are
+      directly relevant. Already consumed by the prompting-only telemetry
+      generator (atomic_red_team_integration.py).
+
+  - name: "CISA #StopRansomware Guide"
+    url: "https://www.cisa.gov/stopransomware/ransomware-guide"
+    type: knowledge_base
+    use: training
+    license: "TLP:CLEAR — U.S. Government public domain, distribution unrestricted"
+    topics:
+      - ransomware_ttps
+      - forensic_analysis
+    format: text
+    notes: >
+      Authoritative best-practice guide co-authored by CISA, MS-ISAC, NSA,
+      and FBI. Covers detection, prevention, response, and recovery TTPs.
+      PDF available at cisa.gov/sites/default/files/2025-03/StopRansomware-Guide%20508.pdf.
+      Good source for QA pairs on incident response procedures.
+
+  - name: "Kaspersky SecureList — Modern Ransomware Groups TTPs"
+    url: "https://securelist.com/modern-ransomware-groups-ttps/106824/"
+    type: knowledge_base
+    use: training
+    license: "All rights reserved — Kaspersky Lab (non-commercial research use)"
+    topics:
+      - ransomware_ttps
+    format: text
+    notes: >
+      Deep-dive analysis of eight ransomware groups (Conti/Ryuk, Pysa, Clop,
+      Hive, LockBit 2.0, RagnarLocker, BlackByte, BlackCat) including kill
+      chain breakdowns and MITRE mappings. Use for QA-pair extraction; do
+      not redistribute verbatim. Additional incident response reports at
+      securelist.com/kaspersky-incident-response-report-2024/115873/ and
+      securelist.com/state-of-ransomware-in-2025/116475/.
+
+  - name: "The DFIR Report — Public Case Reports"
+    url: "https://thedfirreport.com/"
+    type: knowledge_base
+    use: training
+    license: "All rights reserved — The DFIR Report (non-commercial research use)"
+    topics:
+      - ransomware_ttps
+      - forensic_analysis
+      - windows_internals
+    format: text
+    notes: >
+      Detailed intrusion case studies derived from real incidents, including
+      full kill chains, IOCs, and MITRE mappings. Narratives are rich for
+      SFT paragraph-style completions. Scrape the blog index; respect rate
+      limits. Full datasets (Case Artifacts, Detection Pack) require a paid
+      subscription — the free blog posts are sufficient for SFT text.
+
+  - name: "Windows Event Log Reference — Microsoft Learn"
+    url: "https://learn.microsoft.com/en-us/windows/win32/wes/windows-event-log-reference"
+    type: knowledge_base
+    use: training
+    license: "© Microsoft Corporation — documentation use permitted per learn.microsoft.com/legal/termsofuse"
+    topics:
+      - windows_internals
+    format: text
+    notes: >
+      Official API and schema reference for the Windows Event Log subsystem
+      (WES). Complements the legacy Eventlog key documentation at
+      learn.microsoft.com/en-us/windows/win32/eventlog/eventlog-key. Use for
+      grounding the model on event channel names, XML schema, and
+      Security/System/Application log semantics (e.g., Event ID 4657 for
+      registry modification).
+
+  - name: "SANS DFIR Cheat Sheets"
+    url: "https://www.sans.org/posters/sans-dfir-cheatsheet-booklet"
+    type: knowledge_base
+    use: training
+    license: "© SANS Institute — free distribution for non-commercial use"
+    topics:
+      - forensic_analysis
+      - windows_internals
+    format: text
+    notes: >
+      PDF booklet covering memory forensics, Windows artifact locations,
+      malware analysis, hex/regex patterns, and the SIFT workstation.
+      Download requires a free registration. Convert to text with pdfminer
+      or pdfplumber before SFT ingestion. The FOR500 Windows Forensics
+      evidence-location tables are especially relevant.
+
+  # ── Real traces (evaluation) ───────────────────────────────────────────────
+
+  - name: "MalwareBazaar (abuse.ch)"
+    url: "https://bazaar.abuse.ch/"
+    type: real_traces
+    use: evaluation
+    license: "Free for non-commercial use; commercial users require abuse.ch commercial API"
+    topics:
+      - malware_samples
+      - ransomware_ttps
+    format: json
+    notes: >
+      Community malware sample exchange with JSON metadata (tags, YARA hits,
+      family labels, hashes). Query via REST API at bazaar.abuse.ch/api/.
+      Auth-Key required (free registration). Download limit 2,000
+      samples/day/IP. Use for evaluation diversity: filter by tag
+      'ransomware' to get representative family spread. Do NOT ship raw
+      binaries in the repo.
+
+  - name: "Malware Traffic Analysis — PCAP Exercises"
+    url: "https://www.malware-traffic-analysis.net/training-exercises.html"
+    type: real_traces
+    use: evaluation
+    license: "See site — free for personal and educational use; no explicit OSS license"
+    topics:
+      - network_forensics
+    format: pcap
+    notes: >
+      Brad Duncan's curated packet captures with accompanying write-ups.
+      Exercises include ransomware C2 and lateral movement traffic. Useful
+      for evaluating the agent's inspect_connection and list_connections
+      tool reasoning. Password for ZIP archives is 'infected'.
+
+  - name: "CISA StopRansomware Advisories (STIX IOC feeds)"
+    url: "https://www.cisa.gov/stopransomware/resources"
+    type: real_traces
+    use: evaluation
+    license: "TLP:CLEAR — U.S. Government public domain"
+    topics:
+      - ransomware_ttps
+    format: json
+    notes: >
+      Per-family advisories include IOCs, TTPs, and MITRE technique lists in
+      STIX and plain-text formats. Covers LockBit, Play, Akira, ALPHV/BlackCat,
+      Royal, and others. Good ground-truth source for evaluation scenario
+      construction; import IOCs into the active-detective HostState to seed
+      realistic evaluation episodes.
+
+  # ── Synthetic (training + evaluation) ─────────────────────────────────────
+
+  - name: "Active Detective Simulator"
+    url: "active-detective/simulator/"
+    type: synthetic
+    use: both
+    license: "Project-internal (same repo)"
+    topics:
+      - ransomware_ttps
+      - windows_internals
+      - forensic_analysis
+    format: json
+    notes: >
+      HostState snapshots generated by the four attack generators (blitz,
+      sleeper, exfil-first, semantic-shuffle) plus five benign generators.
+      Produces structured tool-call trajectories for GRPO stage 2. Generate
+      via: python -c "from training.scenarios import generate_training_scenarios,
+      save_scenarios; save_scenarios(generate_training_scenarios(1000),
+      'scenarios.jsonl')". Frozen-snapshot multi-window episodes with
+      synthetic file contents (simulator/content.py).
+
+  - name: "Prompting-Only Telemetry Generator"
+    url: "prompting-only/telemetry/comprehensive_telemetry_gen.py"
+    type: synthetic
+    use: training
+    license: "Project-internal (same repo)"
+    topics:
+      - ransomware_ttps
+      - windows_internals
+    format: json
+    notes: >
+      TelemetryWindow JSONL with prompt/completion pairs covering 12 latent
+      attack phases (LatentState enum), partial observability simulation,
+      and expert annotations (ExpertAnnotation). Outputs include 7-layer
+      structured completions (state, meaning, indicators, next_events,
+      timeline, risk, recommended_actions). Run from prompting-only/ dir.
+      Useful for warm-starting domain SFT before GRPO.
