@@ -25,6 +25,9 @@ pandas>=2.2.0
 wandb>=0.18.0
 tensorboard>=2.17.0
 
+# ── MCP server ──────────────────────────────────
+mcp>=1.0.0                     # FastMCP for stdio tool server
+
 # ── Testing ──────────────────────────────────────
 pytest>=8.0.0
 pytest-cov>=5.0.0
