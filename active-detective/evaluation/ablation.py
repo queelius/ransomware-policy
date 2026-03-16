@@ -47,6 +47,7 @@ ABLATION_VARIANTS: dict[str, list[str]] = {
     "file_tools_only": ["inspect_file", "scan_directory", "read_file_sample"],
     "network_tools_only": ["list_connections", "inspect_connection"],
     "v1_tools": V1_TOOLS.copy(),
+    "no_tools": [],
 }
 
 
