@@ -17,6 +17,7 @@ sources:
   # ── Knowledge bases (SFT training) ────────────────────────────────────────
 
   - name: "MITRE ATT&CK STIX Data (attack-stix-data)"
+    key: mitre_attack_stix
     url: "https://github.com/mitre-attack/attack-stix-data"
     type: knowledge_base
     use: training
@@ -33,6 +34,7 @@ sources:
       github.com/mitre/cti if needed.
 
   - name: "MITRE ATT&CK Website — Enterprise Techniques"
+    key: mitre_attack_website
     url: "https://attack.mitre.org/techniques/enterprise/"
     type: knowledge_base
     use: training
@@ -48,6 +50,7 @@ sources:
       programmatic source.
 
   - name: "Atomic Red Team — Test Definitions"
+    key: atomic_red_team
     url: "https://github.com/redcanaryco/atomic-red-team"
     type: knowledge_base
     use: training
@@ -65,6 +68,7 @@ sources:
       generator (atomic_red_team_integration.py).
 
   - name: "CISA #StopRansomware Guide"
+    key: cisa_stopransomware
     url: "https://www.cisa.gov/stopransomware/ransomware-guide"
     type: knowledge_base
     use: training
@@ -80,6 +84,7 @@ sources:
       Good source for QA pairs on incident response procedures.
 
   - name: "Kaspersky SecureList — Modern Ransomware Groups TTPs"
+    key: kaspersky_securelist
     url: "https://securelist.com/modern-ransomware-groups-ttps/106824/"
     type: knowledge_base
     use: training
@@ -96,6 +101,7 @@ sources:
       securelist.com/state-of-ransomware-in-2025/116475/.
 
   - name: "The DFIR Report — Public Case Reports"
+    key: dfir_report
     url: "https://thedfirreport.com/"
     type: knowledge_base
     use: training
@@ -113,6 +119,7 @@ sources:
       subscription — the free blog posts are sufficient for SFT text.
 
   - name: "Windows Event Log Reference — Microsoft Learn"
+    key: windows_event_log
     url: "https://learn.microsoft.com/en-us/windows/win32/wes/windows-event-log-reference"
     type: knowledge_base
     use: training
@@ -129,6 +136,7 @@ sources:
       registry modification).
 
   - name: "SANS DFIR Cheat Sheets"
+    key: sans_dfir
     url: "https://www.sans.org/posters/sans-dfir-cheatsheet-booklet"
     type: knowledge_base
     use: training
@@ -147,6 +155,7 @@ sources:
   # ── Real traces (evaluation) ───────────────────────────────────────────────
 
   - name: "MalwareBazaar (abuse.ch)"
+    key: malwarebazaar
     url: "https://bazaar.abuse.ch/"
     type: real_traces
     use: evaluation
@@ -164,6 +173,7 @@ sources:
       binaries in the repo.
 
   - name: "Malware Traffic Analysis — PCAP Exercises"
+    key: malware_traffic_analysis
     url: "https://www.malware-traffic-analysis.net/training-exercises.html"
     type: real_traces
     use: evaluation
@@ -178,6 +188,7 @@ sources:
       tool reasoning. Password for ZIP archives is 'infected'.
 
   - name: "CISA StopRansomware Advisories (STIX IOC feeds)"
+    key: cisa_ioc_feeds
     url: "https://www.cisa.gov/stopransomware/resources"
     type: real_traces
     use: evaluation
@@ -195,6 +206,7 @@ sources:
   # ── Synthetic (training + evaluation) ─────────────────────────────────────
 
   - name: "Active Detective Simulator"
+    key: active_detective_sim
     url: "active-detective/simulator/"
     type: synthetic
     use: both
@@ -214,6 +226,7 @@ sources:
       synthetic file contents (simulator/content.py).
 
   - name: "Prompting-Only Telemetry Generator"
+    key: prompting_only_gen
     url: "prompting-only/telemetry/comprehensive_telemetry_gen.py"
     type: synthetic
     use: training
