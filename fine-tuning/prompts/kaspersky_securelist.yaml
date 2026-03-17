@@ -59,3 +59,16 @@ templates:
 
       Output as a JSON array: [{"passage": "..."}]
     target_count: 1
+
+  - id: kaspersky_qa_v1
+    type: qa
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      Generate 3-5 QA pairs about ransomware group TTPs, attribution indicators,
+      or threat intelligence analysis. Each question should test factual knowledge
+      about specific ransomware families and their operational patterns.
+
+      {content}
+
+      Output as a JSON array: [{"question": "...", "answer": "..."}]
+    target_count: 3-5

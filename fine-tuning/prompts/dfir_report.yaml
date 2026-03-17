@@ -58,3 +58,16 @@ templates:
 
       Output as a JSON array: [{"passage": "..."}]
     target_count: 1
+
+  - id: dfir_qa_v1
+    type: qa
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      Generate 3-5 QA pairs about forensic investigation techniques, DFIR
+      methodology, or ransomware case study analysis. Each question should test
+      factual knowledge about artifacts, tools, or analysis procedures.
+
+      {content}
+
+      Output as a JSON array: [{"question": "...", "answer": "..."}]
+    target_count: 3-5

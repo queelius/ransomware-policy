@@ -1,6 +1,6 @@
 # SFT Domain Knowledge — Coverage Report
 
-Generated: 2026-03-17 17:08:17 UTC
+Generated: 2026-03-17 17:49:58 UTC
 
 **Total examples**: 1527
 **Avg user prompt length**: 93 chars
