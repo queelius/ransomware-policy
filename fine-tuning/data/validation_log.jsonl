@@ -1,0 +1,9 @@
+{"source_file": "mitre_attack_stix.jsonl", "source_line": 218, "errors": ["near-duplicate (fuzzy dedup)"], "action": "flagged_removed"}
+{"source_file": "mitre_attack_stix.jsonl", "source_line": 226, "errors": ["near-duplicate (fuzzy dedup)"], "action": "flagged_removed"}
+{"source_file": "mitre_attack_stix.jsonl", "source_line": 278, "errors": ["near-duplicate (fuzzy dedup)"], "action": "flagged_removed"}
+{"source_file": "mitre_attack_stix.jsonl", "source_line": 290, "errors": ["near-duplicate (fuzzy dedup)"], "action": "flagged_removed"}
+{"source_file": "mitre_attack_stix.jsonl", "source_line": 310, "errors": ["near-duplicate (fuzzy dedup)"], "action": "flagged_removed"}
+{"source_file": "mitre_attack_stix.jsonl", "source_line": 314, "errors": ["near-duplicate (fuzzy dedup)"], "action": "flagged_removed"}
+{"source_file": "mitre_attack_stix.jsonl", "source_line": 318, "errors": ["near-duplicate (fuzzy dedup)"], "action": "flagged_removed"}
+{"source_file": "mitre_attack_stix.jsonl", "source_line": 322, "errors": ["near-duplicate (fuzzy dedup)"], "action": "flagged_removed"}
+{"source_file": "mitre_attack_stix.jsonl", "source_line": 326, "errors": ["near-duplicate (fuzzy dedup)"], "action": "flagged_removed"}
