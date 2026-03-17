@@ -3,12 +3,7 @@
     "detective": {
       "command": "python",
       "args": ["mcp_server.py"],
-      "cwd": ".",
-      "env": {
-        "SCENARIO_SEED": "42",
-        "SCENARIO_TYPE": "benign",
-        "RESULTS_FILE": "results.jsonl"
-      }
+      "cwd": "."
     }
   }
 }
