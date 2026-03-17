@@ -1,0 +1,55 @@
+source: mitre_attack_stix
+description: "Generate QA pairs and investigation scenarios from MITRE ATT&CK technique definitions"
+
+templates:
+  - id: technique_qa_v1
+    type: qa
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a MITRE ATT&CK technique definition (STIX 2.1 JSON or rendered text).
+      Generate 3-5 high-quality question-answer pairs that a junior SOC analyst would
+      need to know about this technique in the context of ransomware detection and
+      Windows forensics.
+
+      Cover these aspects (select the most relevant for the specific technique):
+      1. What the technique is and how adversaries execute it
+      2. How ransomware operators specifically leverage this technique (cite families if mentioned)
+      3. What Windows artifacts the technique leaves behind (event log IDs, registry keys, file paths, named pipes, scheduled tasks)
+      4. How to detect execution of this technique using host-based telemetry (process creation, file system, registry, network)
+      5. What distinguishes malicious use from legitimate administrative activity (false positive reduction)
+
+      Answers must be 2-4 sentences, technically precise, and reference concrete
+      artifact paths, event IDs, or command-line patterns where applicable. Do not
+      produce generic cybersecurity advice — every answer should contain at least one
+      specific technical detail.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"question": "...", "answer": "..."}]
+    target_count: 4
+
+  - id: technique_instruction_v1
+    type: instruction
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a MITRE ATT&CK technique definition. Generate exactly 1 realistic
+      analyst investigation scenario where a DFIR responder must determine whether
+      this technique was used on a compromised Windows host.
+
+      The instruction should describe a concrete situation: what alert or anomaly
+      was observed, what host or network context is available, and what the analyst
+      needs to determine. Include realistic details like hostnames, IP ranges,
+      timestamps, or process names to make the scenario feel grounded.
+
+      The response should walk through 4-8 sentences of investigation steps:
+      which logs to check (with specific event IDs), which registry keys or file
+      paths to examine, what command-line artifacts to look for, and how to
+      distinguish this technique from benign activity. End with a clear conclusion
+      about what evidence would confirm or rule out the technique.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"instruction": "...", "response": "..."}]
+    target_count: 1

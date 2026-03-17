@@ -1,0 +1,43 @@
+source: prompting_only_gen
+description: "Generate telemetry analysis scenarios from the prompting-only pipeline's expert annotation types"
+
+templates:
+  - id: telemetry_instruction_v1
+    type: instruction
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given output from the prompting-only telemetry generator, which
+      produces TelemetryWindow JSONL with structured expert annotations covering
+      12 latent attack phases (initial_compromise, reconnaissance, credential_access,
+      lateral_movement, privilege_escalation, defense_evasion, c2_communication,
+      staging, exfiltration, encryption, impact, benign_activity). Each annotation
+      includes 7-layer structured analysis: state assessment, semantic meaning,
+      indicators of compromise, predicted next events, timeline placement, risk
+      score, and recommended actions.
+
+      Generate exactly 2 "analyze this telemetry pattern" scenarios based on the
+      expert annotation type and attack phase present in the source content.
+
+      Each instruction should present a realistic telemetry snapshot: a sequence
+      of file system events (path, size_delta, extension_change, pid), process
+      creation events, or network connection events as they would appear in host
+      monitoring. Include the partial observability constraint — some events are
+      missing or ambiguous, and the analyst must reason about what the gaps might
+      hide. Frame the question around determining the current attack phase and
+      appropriate response.
+
+      Each response should provide 4-8 sentences of structured analysis following
+      the 7-layer annotation framework: (1) assess the current state from
+      observable telemetry, (2) explain the semantic meaning of the observed
+      patterns, (3) identify specific indicators of compromise, (4) predict what
+      events are likely to follow based on the inferred attack phase, (5) place
+      the activity on a kill chain timeline, (6) assign a risk level with
+      justification, and (7) recommend specific investigative or containment
+      actions. Reference concrete telemetry fields (entropy values, file extension
+      patterns, process parent-child chains) in the analysis.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"instruction": "...", "response": "..."}]
+    target_count: 2

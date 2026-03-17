@@ -1,0 +1,81 @@
+source: cisa_stopransomware
+description: "Generate QA pairs, incident response scenarios, and domain knowledge passages from CISA StopRansomware Guide"
+
+templates:
+  - id: cisa_qa_v1
+    type: qa
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a section from the CISA #StopRansomware Guide (co-authored by
+      CISA, MS-ISAC, NSA, and FBI). Generate 3-5 question-answer pairs that test
+      an analyst's understanding of the detection, prevention, or response guidance
+      in this section.
+
+      Focus on operationally actionable knowledge:
+      1. What specific technical controls are recommended and why (e.g., disabling SMBv1, enforcing RDP NLA, segmenting OT networks)
+      2. What indicators of compromise or precursor activity the section describes
+      3. What Windows configuration changes, GPO settings, or security baselines are referenced
+      4. What incident response steps are prescribed and in what order
+      5. What common mistakes or anti-patterns the guide warns against
+
+      Answers must be 2-4 sentences and reference specific controls, tools, or
+      procedures mentioned in the source. Avoid restating generic advice — anchor
+      every answer to a concrete technical detail from the guide.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"question": "...", "answer": "..."}]
+    target_count: 4
+
+  - id: cisa_instruction_v1
+    type: instruction
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a section from the CISA #StopRansomware Guide. Generate exactly
+      1 realistic incident response scenario that tests an analyst's ability to
+      apply the guidance from this section.
+
+      The instruction should describe a mid-incident situation: a ransomware attack
+      has been detected at a specific phase (initial access, lateral movement,
+      pre-encryption staging, active encryption, or post-encryption extortion).
+      Include realistic organizational context — network size, affected systems,
+      business pressure, and what has been done so far.
+
+      The response should provide 4-8 sentences of prioritized actions drawn from
+      the CISA guidance. Reference specific steps: network isolation procedures,
+      evidence preservation priorities, communication protocols (FBI/CISA reporting),
+      backup verification, and recovery sequencing. Explain the rationale behind
+      the ordering — why certain actions must precede others (e.g., preserve
+      volatile memory before reimaging, isolate before attempting decryption).
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"instruction": "...", "response": "..."}]
+    target_count: 1
+
+  - id: cisa_passage_v1
+    type: passage
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a section from the CISA #StopRansomware Guide. Generate exactly
+      1 domain knowledge passage that distills the key technical content into a
+      concise, information-dense paragraph suitable for training a language model
+      on ransomware defense.
+
+      The passage should be 3-6 sentences and read like an expert reference note:
+      dense with specific technical details (tool names, protocol versions, registry
+      paths, GPO settings, event IDs) but coherent as a standalone paragraph. It
+      should synthesize the source content rather than merely summarize it —
+      connect the recommendations to the threat model they address and explain
+      the defensive logic.
+
+      Do not include preambles like "This section discusses..." — start directly
+      with the technical content. Write in present tense, active voice.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"passage": "..."}]
+    target_count: 1

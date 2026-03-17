@@ -1,0 +1,60 @@
+source: dfir_report
+description: "Generate investigation scenarios and kill chain walkthroughs from The DFIR Report case studies"
+
+templates:
+  - id: dfir_instruction_v1
+    type: instruction
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a case study from The DFIR Report describing a real-world
+      intrusion with full kill chain details, IOCs, and MITRE ATT&CK mappings.
+      Generate exactly 2 investigation scenarios that test an analyst's ability
+      to reason about the attack as described.
+
+      Each instruction should place the analyst at a specific point in the kill
+      chain (e.g., "You see Cobalt Strike beacon traffic on port 443 to an
+      unusual external IP" or "A service account is authenticating to 14 hosts
+      via SMB within 3 minutes"). Include realistic forensic context: relevant
+      log excerpts, process trees, or network flow summaries drawn from the
+      case details.
+
+      Each response should provide 4-8 sentences of structured investigation
+      guidance: what to correlate (Sysmon event IDs 1/3/7/11/13, Security 4624/4648,
+      PowerShell 4104), what lateral movement artifacts to check (PsExec service
+      install EventID 7045, WMI process creation, RDP bitmap cache), and what
+      the expected findings would be based on the case study's documented TTPs.
+      Reference the specific tools, malware families, and C2 infrastructure
+      mentioned in the source.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"instruction": "...", "response": "..."}]
+    target_count: 2
+
+  - id: dfir_passage_v1
+    type: passage
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a case study from The DFIR Report. Generate exactly 1 kill
+      chain walkthrough passage that narrates the attack from initial access
+      through impact in a concise, technically dense format.
+
+      The passage should be 3-6 sentences and trace the attack progression
+      through ATT&CK tactics: initial access vector, execution method,
+      persistence mechanism, privilege escalation path, lateral movement
+      technique, and final impact (encryption, exfiltration, or both). Name
+      the specific tools used at each stage (Cobalt Strike, Mimikatz, PsExec,
+      Rclone, etc.), the Windows artifacts each stage produces, and the
+      time-to-ransom (dwell time) if mentioned.
+
+      Write as a factual narrative — no hedging or qualifications. Use past
+      tense for the attack actions and present tense for the forensic artifacts
+      they leave. This passage should read like a condensed incident summary
+      that a senior analyst could use as a reference.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"passage": "..."}]
+    target_count: 1

@@ -1,0 +1,57 @@
+source: atomic_red_team
+description: "Generate QA pairs and investigation scenarios from Atomic Red Team test definitions"
+
+templates:
+  - id: atomic_qa_v1
+    type: qa
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given an Atomic Red Team test definition (YAML) that describes a
+      concrete adversary command or script mapped to a MITRE ATT&CK technique.
+      Generate 3-5 question-answer pairs that help an analyst understand what
+      this atomic test does and how to detect it.
+
+      Cover these aspects (select the most relevant):
+      1. What the command or script does at the OS level (process, file, registry, network effects)
+      2. What artifacts the execution leaves on disk, in memory, or in logs (be specific: event IDs, file paths, registry values)
+      3. How EDR or SIEM rules could detect this execution (command-line patterns, parent-child process relationships, named pipe creation)
+      4. What input arguments modify the test's behavior and how that affects detection
+      5. How a defender can differentiate this from legitimate administrative use of the same command
+
+      Answers must be 2-4 sentences and technically precise. Reference the exact
+      commands, paths, and parameters from the test definition. If the test uses
+      PowerShell, mention specific cmdlets; if it uses cmd.exe, cite the exact
+      command-line switches.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"question": "...", "answer": "..."}]
+    target_count: 4
+
+  - id: atomic_instruction_v1
+    type: instruction
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given an Atomic Red Team test definition that describes a specific
+      adversary command or technique execution. Generate exactly 1 investigation
+      scenario where an analyst must determine whether this exact command (or a
+      close variant) was executed on a Windows endpoint.
+
+      The instruction should present a realistic alert trigger: an EDR alert on a
+      suspicious command line, a SIEM correlation rule hit, an anomalous process
+      creation event, or a user-reported incident. Include specific details like
+      the hostname, approximate timestamp, and the alert description.
+
+      The response should provide 4-8 sentences of concrete investigation steps:
+      what event logs to query (Security, Sysmon, PowerShell Operational — with
+      event IDs), what command-line fragments to search for, what parent process
+      relationships to validate, what file system or registry artifacts to check,
+      and what cleanup indicators the test's cleanup_command might have removed.
+      Reference the specific commands from the atomic test definition.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"instruction": "...", "response": "..."}]
+    target_count: 1

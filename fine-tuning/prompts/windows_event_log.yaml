@@ -1,0 +1,41 @@
+source: windows_event_log
+description: "Generate QA pairs from Windows Event Log reference material focused on forensically significant events"
+
+templates:
+  - id: eventlog_qa_v1
+    type: qa
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given documentation about Windows Event Log event IDs, channels,
+      or schema definitions. Generate 3-5 question-answer pairs focused on the
+      forensic significance of these events for ransomware detection and incident
+      response.
+
+      Prioritize coverage of these forensically critical event IDs if they appear
+      in the source content:
+      - Security 4688: Process creation (with command-line auditing)
+      - Security 4657: Registry value modification
+      - Security 4624/4625: Logon success/failure (Type 3 network, Type 10 RDP)
+      - Security 4648: Explicit credential logon (pass-the-hash indicator)
+      - Security 1102: Audit log cleared (anti-forensics)
+      - System 7045: New service installed (PsExec, persistence)
+      - System 7036: Service state change
+      - Microsoft-Windows-Defender/Operational 5001: Real-time protection disabled
+      - Microsoft-Windows-Sysmon/Operational 1/3/7/11/13: Process/network/image/file/registry
+      - PowerShell/Operational 4104: Script block logging
+
+      For each QA pair, focus on:
+      1. What the event records and what fields are forensically relevant
+      2. What ransomware-related activity triggers this event (specific examples)
+      3. How to query or filter for suspicious instances (XPath filters, PowerShell Get-WinEvent)
+      4. What the absence of expected events indicates (log tampering via wevtutil cl or 1102)
+      5. How to correlate this event with others to build an attack timeline
+
+      Answers must be 2-4 sentences with specific field names, XPath expressions,
+      or PowerShell commands where applicable.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"question": "...", "answer": "..."}]
+    target_count: 4

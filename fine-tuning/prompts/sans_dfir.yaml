@@ -1,0 +1,31 @@
+source: sans_dfir
+description: "Generate QA pairs from SANS DFIR cheat sheets focused on artifact locations and forensic patterns"
+
+templates:
+  - id: sans_qa_v1
+    type: qa
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a section from a SANS DFIR cheat sheet covering forensic
+      artifact locations, analysis techniques, or evidence collection procedures
+      on Windows systems. Generate 3-5 question-answer pairs that test precise
+      knowledge of forensic artifacts and investigation procedures relevant to
+      ransomware cases.
+
+      Focus on these forensic domains (as applicable to the source content):
+      1. Windows artifact locations: $MFT, $UsnJrnl, $LogFile, Prefetch (C:\Windows\Prefetch\*.pf), Amcache.hve, ShimCache (AppCompatCache registry key), SRUM (C:\Windows\System32\sru\SRUDB.dat)
+      2. Registry forensics: NTUSER.DAT (MRU lists, UserAssist, typed paths), SYSTEM hive (services, network interfaces), SAM (local accounts), SOFTWARE (installed programs, run keys)
+      3. Memory forensics: Volatility plugins for process listing (pslist/psscan), network connections (netscan), DLL injection detection (malfind), command history (cmdscan/consoles)
+      4. Evidence collection order: volatile data first (memory, network connections, running processes), then non-volatile (disk images, log exports)
+      5. Timestamp analysis: MACB times in NTFS, timestamp stomping detection via $STANDARD_INFORMATION vs $FILE_NAME comparison
+
+      Answers must be 2-4 sentences with exact file paths, registry key paths,
+      tool commands (e.g., vol.py -f memory.dmp windows.pslist), or forensic
+      methodology details. Every answer should contain at least one concrete
+      artifact path or tool invocation.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"question": "...", "answer": "..."}]
+    target_count: 4

@@ -1,0 +1,61 @@
+source: kaspersky_securelist
+description: "Generate investigation scenarios and TTP deep-dives from Kaspersky SecureList ransomware group analyses"
+
+templates:
+  - id: kaspersky_instruction_v1
+    type: instruction
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a Kaspersky SecureList analysis of a ransomware group's TTPs
+      (covering groups like Conti/Ryuk, Pysa, Clop, Hive, LockBit 2.0,
+      RagnarLocker, BlackByte, or BlackCat/ALPHV). Generate exactly 2
+      investigation scenarios that test an analyst's ability to attribute
+      observed activity to this group's known tradecraft.
+
+      Each instruction should present a realistic detection trigger that aligns
+      with the group's documented TTPs: a specific tool execution (AdFind,
+      BloodHound, Cobalt Strike, Mimikatz, Rclone), a characteristic lateral
+      movement pattern, a known C2 communication pattern, or a distinctive
+      encryption behavior (file extension, ransom note filename, encryption
+      algorithm). Include enough forensic context (process names, command-line
+      fragments, file paths, network indicators) to make the scenario
+      investigable.
+
+      Each response should provide 4-8 sentences explaining how to confirm or
+      rule out attribution to this specific group. Reference the group's known
+      tooling preferences, unique operational patterns (e.g., LockBit's
+      self-spreading via GPO, Conti's use of Anchor/BazarLoader for initial
+      access, BlackCat's Rust-based locker), and forensic differentiators that
+      separate this group from others with similar TTPs.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"instruction": "...", "response": "..."}]
+    target_count: 2
+
+  - id: kaspersky_passage_v1
+    type: passage
+    system: "You are a ransomware forensic analyst with deep expertise in Windows internals and incident response."
+    prompt: |
+      You are given a Kaspersky SecureList analysis of a ransomware group. Generate
+      exactly 1 TTP deep-dive passage that captures the group's distinctive
+      operational tradecraft in a dense, technically precise format.
+
+      The passage should be 3-6 sentences and cover: the group's typical initial
+      access vector, preferred execution and persistence mechanisms, lateral
+      movement methodology, data exfiltration approach (if applicable), and
+      encryption behavior (algorithm, file targeting, ransom note delivery).
+      Highlight what makes this group's operations distinctive compared to other
+      ransomware operators — unique tools, unusual techniques, characteristic
+      timing patterns, or notable OPSEC practices.
+
+      Write as authoritative threat intelligence — factual, specific, and
+      referenceable. Include MITRE ATT&CK technique IDs where the source maps
+      them. Name specific tools, malware variants, and infrastructure patterns.
+
+      Source content:
+      {content}
+
+      Output as a JSON array: [{"passage": "..."}]
+    target_count: 1
