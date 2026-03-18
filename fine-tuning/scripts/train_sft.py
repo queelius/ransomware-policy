@@ -226,8 +226,8 @@ def main() -> None:
         metric_for_best_model="eval_loss" if has_eval else None,
         report_to="none",
         optim="paged_adamw_8bit",
-        max_seq_length=args.max_seq_length,
-        dataset_kwargs={"skip_prepare_dataset": True},
+        max_length=args.max_seq_length,
+        remove_unused_columns=False,
     )
 
     # ------------------------------------------------------------------
