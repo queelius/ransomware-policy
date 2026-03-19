@@ -576,22 +576,47 @@ def load_model(config: TrainingConfig):
         try:
             from unsloth import FastLanguageModel
 
-            model, tokenizer = FastLanguageModel.from_pretrained(
-                model_name=config.model_name,
-                max_seq_length=4096,
-                load_in_4bit=True,
-            )
-            model = FastLanguageModel.get_peft_model(
-                model,
-                r=config.lora_r,
-                lora_alpha=config.lora_alpha,
-                target_modules=[
-                    "q_proj", "v_proj", "k_proj", "o_proj",
-                    "gate_proj", "up_proj", "down_proj",
-                ],
-                lora_dropout=0.0,
-                bias="none",
-            )
+            # If SFT adapter exists, load it first then apply new LoRA on top
+            if config.adapter_path and Path(config.adapter_path).exists():
+                logger.info(f"Loading SFT adapter from {config.adapter_path} via Unsloth")
+                model, tokenizer = FastLanguageModel.from_pretrained(
+                    model_name=config.adapter_path,  # Load adapter directly
+                    max_seq_length=4096,
+                    load_in_4bit=True,
+                )
+                # Merge the SFT adapter weights and apply fresh LoRA for GRPO
+                from peft import PeftModel
+                if hasattr(model, 'merge_and_unload'):
+                    model = model.merge_and_unload()
+                model = FastLanguageModel.get_peft_model(
+                    model,
+                    r=config.lora_r,
+                    lora_alpha=config.lora_alpha,
+                    target_modules=[
+                        "q_proj", "v_proj", "k_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj",
+                    ],
+                    lora_dropout=0.0,
+                    bias="none",
+                )
+                logger.info(f"SFT adapter merged, fresh LoRA applied for GRPO")
+            else:
+                model, tokenizer = FastLanguageModel.from_pretrained(
+                    model_name=config.model_name,
+                    max_seq_length=4096,
+                    load_in_4bit=True,
+                )
+                model = FastLanguageModel.get_peft_model(
+                    model,
+                    r=config.lora_r,
+                    lora_alpha=config.lora_alpha,
+                    target_modules=[
+                        "q_proj", "v_proj", "k_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj",
+                    ],
+                    lora_dropout=0.0,
+                    bias="none",
+                )
             logger.info(f"Loaded {config.model_name} via Unsloth (4-bit)")
             return model, tokenizer
 
