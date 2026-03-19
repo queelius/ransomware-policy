@@ -638,10 +638,10 @@ def load_model(config: TrainingConfig):
     )
     model = get_peft_model(model, lora_config)
 
-    # Cast LoRA layers to float16 to match model dtype
+    # LoRA trainable params must be float32 for optimizer stability
     for name, param in model.named_parameters():
-        if param.requires_grad and param.dtype != _torch.float16:
-            param.data = param.data.to(_torch.float16)
+        if param.requires_grad:
+            param.data = param.data.to(_torch.float32)
 
     logger.info(f"Loaded {config.model_name} via transformers + PEFT (4-bit)")
     return model, tokenizer
@@ -697,7 +697,7 @@ def train(config: TrainingConfig) -> None:
         seed=config.seed,
         report_to="none",  # change to "wandb" for experiment tracking
         gradient_checkpointing=True,
-        fp16=True,
+        # No fp16/bf16 flag — model is already in fp16, no GradScaler needed
     )
 
     # Workaround for PEFT + TRL compatibility: GRPOTrainer tries to set
