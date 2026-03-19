@@ -572,51 +572,30 @@ def prepare_dataset(config: TrainingConfig) -> list[dict]:
 
 def load_model(config: TrainingConfig):
     """Load model with QLoRA, optionally via Unsloth."""
-    if config.use_unsloth:
+    # If SFT adapter is provided, skip Unsloth (merge_and_unload has dtype issues
+    # with 4-bit models in Unsloth). Use the transformers+PEFT fallback instead.
+    use_unsloth = config.use_unsloth and not (config.adapter_path and Path(config.adapter_path).exists())
+
+    if use_unsloth:
         try:
             from unsloth import FastLanguageModel
 
-            # If SFT adapter exists, load it first then apply new LoRA on top
-            if config.adapter_path and Path(config.adapter_path).exists():
-                logger.info(f"Loading SFT adapter from {config.adapter_path} via Unsloth")
-                model, tokenizer = FastLanguageModel.from_pretrained(
-                    model_name=config.adapter_path,  # Load adapter directly
-                    max_seq_length=4096,
-                    load_in_4bit=True,
-                )
-                # Merge the SFT adapter weights and apply fresh LoRA for GRPO
-                from peft import PeftModel
-                if hasattr(model, 'merge_and_unload'):
-                    model = model.merge_and_unload()
-                model = FastLanguageModel.get_peft_model(
-                    model,
-                    r=config.lora_r,
-                    lora_alpha=config.lora_alpha,
-                    target_modules=[
-                        "q_proj", "v_proj", "k_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj",
-                    ],
-                    lora_dropout=0.0,
-                    bias="none",
-                )
-                logger.info(f"SFT adapter merged, fresh LoRA applied for GRPO")
-            else:
-                model, tokenizer = FastLanguageModel.from_pretrained(
-                    model_name=config.model_name,
-                    max_seq_length=4096,
-                    load_in_4bit=True,
-                )
-                model = FastLanguageModel.get_peft_model(
-                    model,
-                    r=config.lora_r,
-                    lora_alpha=config.lora_alpha,
-                    target_modules=[
-                        "q_proj", "v_proj", "k_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj",
-                    ],
-                    lora_dropout=0.0,
-                    bias="none",
-                )
+            model, tokenizer = FastLanguageModel.from_pretrained(
+                model_name=config.model_name,
+                max_seq_length=4096,
+                load_in_4bit=True,
+            )
+            model = FastLanguageModel.get_peft_model(
+                model,
+                r=config.lora_r,
+                lora_alpha=config.lora_alpha,
+                target_modules=[
+                    "q_proj", "v_proj", "k_proj", "o_proj",
+                    "gate_proj", "up_proj", "down_proj",
+                ],
+                lora_dropout=0.0,
+                bias="none",
+            )
             logger.info(f"Loaded {config.model_name} via Unsloth (4-bit)")
             return model, tokenizer
 
@@ -629,18 +608,14 @@ def load_model(config: TrainingConfig):
 
     import torch as _torch
 
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=_torch.bfloat16,
-    )
-
     tokenizer = AutoTokenizer.from_pretrained(config.model_name)
+
+    # For GRPO: load in float16 (not 4-bit) to avoid dtype mismatch
+    # during policy gradient computation. 1.7B in fp16 = ~3.4GB, fits in 12GB.
     model = AutoModelForCausalLM.from_pretrained(
         config.model_name,
-        quantization_config=bnb_config,
         device_map="auto",
-        torch_dtype=_torch.bfloat16,
+        torch_dtype=_torch.float16,
     )
 
     # If an SFT adapter is provided, merge it into the base model first
@@ -663,11 +638,10 @@ def load_model(config: TrainingConfig):
     )
     model = get_peft_model(model, lora_config)
 
-    # Cast LoRA layers to bfloat16 to match compute dtype
-    import torch as _torch2
+    # Cast LoRA layers to float16 to match model dtype
     for name, param in model.named_parameters():
-        if param.requires_grad:
-            param.data = param.data.to(_torch2.bfloat16)
+        if param.requires_grad and param.dtype != _torch.float16:
+            param.data = param.data.to(_torch.float16)
 
     logger.info(f"Loaded {config.model_name} via transformers + PEFT (4-bit)")
     return model, tokenizer
@@ -723,7 +697,7 @@ def train(config: TrainingConfig) -> None:
         seed=config.seed,
         report_to="none",  # change to "wandb" for experiment tracking
         gradient_checkpointing=True,
-        bf16=True,
+        fp16=True,
     )
 
     # Workaround for PEFT + TRL compatibility: GRPOTrainer tries to set
