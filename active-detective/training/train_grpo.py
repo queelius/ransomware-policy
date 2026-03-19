@@ -63,7 +63,7 @@ class TrainingConfig:
         default_factory=lambda: [0.3, 0.5, 0.7, 0.9])
     available_tools: list[str] | None = None
     logging_steps: int = 10
-    save_steps: int = 50
+    save_steps: int = 25
     use_unsloth: bool = True
     disable_thinking: bool = False
     n_history: int = 2
@@ -715,8 +715,17 @@ def train(config: TrainingConfig) -> None:
         reward_funcs=[verdict_reward_func],
     )
 
-    logger.info("Starting GRPO training with multi-step environment rollouts...")
-    trainer.train()
+    # Resume from checkpoint if one exists in output_dir
+    resume_checkpoint = None
+    output_path = Path(config.output_dir)
+    if output_path.exists():
+        checkpoints = sorted(output_path.glob("checkpoint-*"), key=lambda p: int(p.name.split("-")[1]))
+        if checkpoints:
+            resume_checkpoint = str(checkpoints[-1])
+            logger.info(f"Resuming from checkpoint: {resume_checkpoint}")
+
+    logger.info("Starting GRPO training...")
+    trainer.train(resume_from_checkpoint=resume_checkpoint)
 
     # Save final model
     logger.info(f"Saving model to {config.output_dir}")
