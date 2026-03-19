@@ -48,6 +48,7 @@ class TrainingConfig:
     """GRPO training configuration."""
 
     model_name: str = "Qwen/Qwen3.5-9B"
+    adapter_path: str | None = None  # Path to SFT LoRA adapter to load as starting point
     output_dir: str = "./checkpoints"
     n_episodes: int = 500
     group_size: int = 4
@@ -407,6 +408,68 @@ def _compute_env_reward(env: DetectionEnv) -> float:
     return verdict_reward + action_cost + efficiency_bonus
 
 
+def verdict_reward_func(completions: list[str], **kwargs) -> list[float]:
+    """Offline GRPO reward: parse verdict from completion, score against ground truth.
+
+    For TRL 0.24 which doesn't support environment_factory. The model generates
+    a single-pass response with a verdict, and we score it.
+    """
+    import re as _re
+
+    scenario_data_list = kwargs.get("scenario_data", [])
+    rewards = []
+
+    for i, completion in enumerate(completions):
+        content = completion
+        if isinstance(completion, list):
+            content = completion[-1].get("content", "") if completion else ""
+        elif isinstance(completion, dict):
+            content = completion.get("content", "")
+
+        # Parse scenario data to get ground truth
+        if i < len(scenario_data_list):
+            sd = json.loads(scenario_data_list[i]) if isinstance(scenario_data_list[i], str) else scenario_data_list[i]
+        else:
+            sd = {}
+
+        scenario_type = ScenarioType(sd.get("scenario_type", "benign"))
+        is_ransomware = scenario_type != ScenarioType.BENIGN
+
+        # Parse verdict from completion
+        verdict = None
+        json_match = _re.search(r'"verdict"\s*:\s*"([^"]+)"', content)
+        if json_match:
+            verdict = json_match.group(1).lower().strip()
+        else:
+            content_lower = content.lower()
+            for v in ["block", "quarantine", "alert", "monitor", "ignore"]:
+                if v in content_lower:
+                    verdict = v
+                    break
+
+        # Score
+        if verdict is None:
+            reward = -2.0 if is_ransomware else -0.5
+        else:
+            predicted_malicious = verdict in ("alert", "quarantine", "block")
+            if predicted_malicious == is_ransomware:
+                reward = 1.0  # correct
+            elif is_ransomware and not predicted_malicious:
+                reward = -2.0  # false negative (worst)
+            else:
+                reward = -1.0  # false positive
+
+        # Format bonus
+        if "<think>" in content:
+            reward += 0.05
+        if "verdict" in content.lower():
+            reward += 0.05
+
+        rewards.append(reward)
+
+    return rewards
+
+
 def format_reward(completions: list[str], **kwargs) -> list[float]:
     """Reward for well-formatted output (thinking + tool calls).
 
@@ -473,10 +536,27 @@ def prepare_dataset(config: TrainingConfig) -> list[dict]:
             "n_history": config.n_history,
         }
 
-        # Prompt in conversational format (telemetry injected by env.reset())
+        # Generate episode to get telemetry text
+        episode = generate_episode(
+            ep.scenario_type, ep.observability, np.random.RandomState(ep_seed),
+            attack_progress=attack_progress, n_history=config.n_history,
+        )
+
+        # Build telemetry text with history windows
+        if episode.history_windows:
+            parts = []
+            n = len(episode.history_windows)
+            for i, hw in enumerate(episode.history_windows):
+                parts.append(f"--- Window t-{n - i} (prior) ---\n{hw}")
+            parts.append(f"--- Current Window ---\n{episode.input_text}")
+            telemetry_text = "\n\n".join(parts)
+        else:
+            telemetry_text = episode.input_text
+
+        # Prompt with telemetry included (offline GRPO — no environment injection)
         prompt = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "Analyze the following telemetry window."},
+            {"role": "user", "content": f"Analyze this host telemetry and provide your verdict as JSON: {{\"verdict\": \"...\", \"explanation\": \"...\"}}\n\n{telemetry_text}"},
         ]
 
         dataset.append({
@@ -519,13 +599,15 @@ def load_model(config: TrainingConfig):
             logger.warning("Unsloth not available, falling back to transformers")
 
     # Fallback: transformers + PEFT
-    from peft import LoraConfig, get_peft_model
+    from peft import LoraConfig, PeftModel, get_peft_model
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+    import torch as _torch
 
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype="bfloat16",
+        bnb_4bit_compute_dtype=_torch.bfloat16,
     )
 
     tokenizer = AutoTokenizer.from_pretrained(config.model_name)
@@ -533,7 +615,15 @@ def load_model(config: TrainingConfig):
         config.model_name,
         quantization_config=bnb_config,
         device_map="auto",
+        torch_dtype=_torch.bfloat16,
     )
+
+    # If an SFT adapter is provided, merge it into the base model first
+    if config.adapter_path and Path(config.adapter_path).exists():
+        logger.info(f"Loading SFT adapter from {config.adapter_path}")
+        model = PeftModel.from_pretrained(model, config.adapter_path)
+        model = model.merge_and_unload()
+        logger.info("SFT adapter merged into base model")
 
     lora_config = LoraConfig(
         r=config.lora_r,
@@ -547,6 +637,12 @@ def load_model(config: TrainingConfig):
         task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, lora_config)
+
+    # Cast LoRA layers to bfloat16 to match compute dtype
+    import torch as _torch2
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            param.data = param.data.to(_torch2.bfloat16)
 
     logger.info(f"Loaded {config.model_name} via transformers + PEFT (4-bit)")
     return model, tokenizer
@@ -588,10 +684,6 @@ def train(config: TrainingConfig) -> None:
     hf_dataset = Dataset.from_list(dataset_items)
 
     # GRPO training config
-    chat_template_kwargs = {}
-    if config.disable_thinking:
-        chat_template_kwargs["enable_thinking"] = False
-
     training_args = GRPOConfig(
         output_dir=config.output_dir,
         num_train_epochs=1,
@@ -605,17 +697,23 @@ def train(config: TrainingConfig) -> None:
         num_generations=config.group_size,
         seed=config.seed,
         report_to="none",  # change to "wandb" for experiment tracking
-        chat_template_kwargs=chat_template_kwargs,
+        gradient_checkpointing=True,
+        bf16=True,
     )
 
-    # Create trainer with environment_factory for multi-step rollouts
+    # Workaround for PEFT + TRL compatibility: GRPOTrainer tries to set
+    # model.warnings_issued which doesn't exist on PeftModel
+    if not hasattr(model, "warnings_issued"):
+        model.warnings_issued = {}
+
+    # Create trainer — TRL 0.24 uses offline GRPO (no environment_factory).
+    # The reward function scores single-pass completions against ground truth.
     trainer = GRPOTrainer(
         model=model,
         args=training_args,
         processing_class=tokenizer,
         train_dataset=hf_dataset,
-        reward_funcs=[detection_reward, format_reward],
-        environment_factory=lambda: DetectionEnv(k_max=config.k_max),
+        reward_funcs=[verdict_reward_func],
     )
 
     logger.info("Starting GRPO training with multi-step environment rollouts...")
@@ -638,6 +736,8 @@ def main():
 
     parser.add_argument("--model", default="Qwen/Qwen3.5-9B",
                         help="HuggingFace model name or path")
+    parser.add_argument("--adapter", default=None,
+                        help="Path to SFT LoRA adapter to merge before GRPO")
     parser.add_argument("--output-dir", default="./checkpoints",
                         help="Directory for checkpoints and logs")
     parser.add_argument("--n-episodes", type=int, default=500,
@@ -667,6 +767,7 @@ def main():
 
     config = TrainingConfig(
         model_name=args.model,
+        adapter_path=args.adapter,
         output_dir=args.output_dir,
         n_episodes=args.n_episodes,
         group_size=args.group_size,
