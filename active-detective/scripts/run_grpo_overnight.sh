@@ -23,6 +23,7 @@ python -m training.train_grpo \
     --k-max 5 \
     --lora-r 16 \
     --lora-alpha 32 \
+    --no-unsloth \
     --disable-thinking \
     --seed 42 \
     2>&1 | tee grpo_training.log

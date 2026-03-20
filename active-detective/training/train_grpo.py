@@ -536,27 +536,10 @@ def prepare_dataset(config: TrainingConfig) -> list[dict]:
             "n_history": config.n_history,
         }
 
-        # Generate episode to get telemetry text
-        episode = generate_episode(
-            ep.scenario_type, ep.observability, np.random.RandomState(ep_seed),
-            attack_progress=attack_progress, n_history=config.n_history,
-        )
-
-        # Build telemetry text with history windows
-        if episode.history_windows:
-            parts = []
-            n = len(episode.history_windows)
-            for i, hw in enumerate(episode.history_windows):
-                parts.append(f"--- Window t-{n - i} (prior) ---\n{hw}")
-            parts.append(f"--- Current Window ---\n{episode.input_text}")
-            telemetry_text = "\n\n".join(parts)
-        else:
-            telemetry_text = episode.input_text
-
-        # Prompt with telemetry included (offline GRPO — no environment injection)
+        # Prompt in conversational format — telemetry injected by env.reset()
         prompt = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Analyze this host telemetry and provide your verdict as JSON: {{\"verdict\": \"...\", \"explanation\": \"...\"}}\n\n{telemetry_text}"},
+            {"role": "user", "content": "Analyze the following telemetry window."},
         ]
 
         dataset.append({
@@ -682,7 +665,12 @@ def train(config: TrainingConfig) -> None:
     # Convert to HuggingFace Dataset
     hf_dataset = Dataset.from_list(dataset_items)
 
-    # GRPO training config
+    # GRPO training config — TRL 0.29 supports environment_factory for
+    # real multi-step tool-use rollouts
+    chat_template_kwargs = {}
+    if config.disable_thinking:
+        chat_template_kwargs["enable_thinking"] = False
+
     training_args = GRPOConfig(
         output_dir=config.output_dir,
         num_train_epochs=1,
@@ -694,25 +682,27 @@ def train(config: TrainingConfig) -> None:
         save_steps=config.save_steps,
         max_completion_length=config.max_completion_length,
         num_generations=config.group_size,
+        max_tool_calling_iterations=config.k_max,
         seed=config.seed,
-        report_to="none",  # change to "wandb" for experiment tracking
+        report_to="none",
         gradient_checkpointing=True,
-        # No fp16/bf16 flag — model is already in fp16, no GradScaler needed
+        chat_template_kwargs=chat_template_kwargs if chat_template_kwargs else None,
     )
 
-    # Workaround for PEFT + TRL compatibility: GRPOTrainer tries to set
-    # model.warnings_issued which doesn't exist on PeftModel
+    # Workaround for PEFT + TRL compatibility
     if not hasattr(model, "warnings_issued"):
         model.warnings_issued = {}
 
-    # Create trainer — TRL 0.24 uses offline GRPO (no environment_factory).
-    # The reward function scores single-pass completions against ground truth.
+    # Create trainer with environment_factory for multi-step tool-use rollouts.
+    # DetectionEnv exposes investigation tools as methods — TRL handles the
+    # generate → tool_call → execute → inject_result → continue loop.
     trainer = GRPOTrainer(
         model=model,
         args=training_args,
         processing_class=tokenizer,
         train_dataset=hf_dataset,
-        reward_funcs=[verdict_reward_func],
+        reward_funcs=[detection_reward, format_reward],
+        environment_factory=lambda: DetectionEnv(k_max=config.k_max),
     )
 
     # Resume from checkpoint if one exists in output_dir
