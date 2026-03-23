@@ -378,34 +378,30 @@ def _compute_env_reward(env: DetectionEnv) -> float:
     verdict = env._verdict
     k_max = env._k_max
 
-    # ── Verdict reward (asymmetric) ──────────────────────────────
+    # ── Verdict reward — pure outcome, no behavior shaping ────────
+    # Only reward what matters: correct verdicts.
+    # No efficiency bonus (was rewarding "do nothing fast").
+    # No action cost (was penalizing investigation).
+    # Let the model figure out the optimal investigation strategy.
     if verdict is None:
         # No decide call — harsh penalty
         if gt.is_ransomware:
-            verdict_reward = -2.0  # false negative
+            return -3.0  # missed ransomware AND didn't even decide
         else:
-            verdict_reward = -0.5  # slightly less bad for benign
+            return -1.0  # benign but still should have decided
+
+    try:
+        v = Verdict(verdict)
+        predicted = v.is_ransomware_prediction
+    except ValueError:
+        return -2.0  # invalid verdict
+
+    if predicted == gt.is_ransomware:
+        return 1.0   # correct — the only thing we reward
+    elif gt.is_ransomware and not predicted:
+        return -3.0   # false negative — missed ransomware
     else:
-        try:
-            v = Verdict(verdict)
-            predicted = v.is_ransomware_prediction
-            if predicted == gt.is_ransomware:
-                verdict_reward = 1.0
-            elif gt.is_ransomware and not predicted:
-                verdict_reward = -2.0  # false negative
-            else:
-                verdict_reward = -1.0  # false positive
-        except ValueError:
-            verdict_reward = -1.0  # invalid verdict
-
-    # ── Action cost ──────────────────────────────────────────────
-    action_cost = env._cumulative_cost
-
-    # ── Efficiency bonus ─────────────────────────────────────────
-    unused = max(0, k_max - env._steps)
-    efficiency_bonus = unused * 0.05
-
-    return verdict_reward + action_cost + efficiency_bonus
+        return -2.0   # false positive — alarm fatigue
 
 
 def verdict_reward_func(completions: list[str], **kwargs) -> list[float]:
@@ -701,7 +697,7 @@ def train(config: TrainingConfig) -> None:
         args=training_args,
         processing_class=tokenizer,
         train_dataset=hf_dataset,
-        reward_funcs=[detection_reward, format_reward],
+        reward_funcs=[detection_reward],
         environment_factory=lambda: DetectionEnv(k_max=config.k_max),
     )
 
