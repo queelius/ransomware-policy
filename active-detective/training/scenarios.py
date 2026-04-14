@@ -136,7 +136,7 @@ def save_scenarios(batch: ScenarioBatch, path: str | Path) -> None:
 def load_scenarios(path: str | Path) -> list[dict]:
     """Load scenarios from JSONL file.
 
-    Returns list of dicts (not Episode objects — Episodes contain
+    Returns list of dicts (not Episode objects; Episodes contain
     non-serializable state). Use for analysis and training data loading.
     """
     records = []
@@ -146,3 +146,76 @@ def load_scenarios(path: str | Path) -> list[dict]:
             if line:
                 records.append(json.loads(line))
     return records
+
+
+def build_scenario_plan(
+    n_episodes: int = 1000,
+    observability_levels: list[float] | None = None,
+    scenario_mix: dict[ScenarioType, float] | None = None,
+    seed: int = 42,
+    n_history: int = 2,
+) -> list[dict]:
+    """Build a reproducible plan of scenario parameters without generating episodes.
+
+    Returns a list of dicts, each with the exact fields that
+    DetectionEnv.reset() consumes via scenario_data. This replaces the
+    wasteful pattern where prepare_dataset generated full episodes just
+    to read their parameters.
+
+    The returned plan is the canonical source for both training and
+    for save_scenario_plan: what is saved is exactly what the env rolls
+    out at training time.
+    """
+    if observability_levels is None:
+        observability_levels = DEFAULT_OBSERVABILITY_LEVELS
+    if scenario_mix is None:
+        scenario_mix = DEFAULT_SCENARIO_MIX
+
+    rng = np.random.RandomState(seed)
+    scenario_types = list(scenario_mix.keys())
+    probabilities = np.array([scenario_mix[s] for s in scenario_types])
+    probabilities = probabilities / probabilities.sum()
+
+    plan: list[dict] = []
+    for _ in range(n_episodes):
+        idx = rng.choice(len(scenario_types), p=probabilities)
+        scenario_type = scenario_types[idx]
+        obs = observability_levels[rng.randint(0, len(observability_levels))]
+
+        if scenario_type == ScenarioType.BENIGN:
+            progress = 0.0
+        else:
+            progress = float(rng.uniform(0.2, 0.9))
+
+        ep_seed = int(rng.randint(0, 2**31))
+
+        plan.append({
+            "scenario_type": scenario_type.value,
+            "observability": float(obs),
+            "attack_progress": progress,
+            "seed": ep_seed,
+            "n_history": n_history,
+        })
+
+    return plan
+
+
+def save_scenario_plan(plan: list[dict], path: str | Path) -> None:
+    """Save a scenario plan to JSONL. Each line is directly usable as
+    scenario_data in DetectionEnv.reset()."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        for entry in plan:
+            f.write(json.dumps(entry) + "\n")
+
+
+def load_scenario_plan(path: str | Path) -> list[dict]:
+    """Load a scenario plan from JSONL."""
+    entries = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                entries.append(json.loads(line))
+    return entries

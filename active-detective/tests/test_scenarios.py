@@ -158,3 +158,67 @@ class TestSaveLoad:
             assert "is_ransomware" in record
 
         Path(path).unlink()
+
+
+class TestBuildScenarioPlan:
+    """Phase 5: build_scenario_plan replaces the pattern of generating
+    full episodes just to read their parameters.
+    """
+
+    def test_returns_list_of_dicts_with_required_fields(self):
+        from training.scenarios import build_scenario_plan
+        plan = build_scenario_plan(n_episodes=20, seed=42)
+        assert len(plan) == 20
+        for entry in plan:
+            assert set(entry.keys()) == {
+                "scenario_type", "observability", "attack_progress",
+                "seed", "n_history",
+            }
+
+    def test_reproducible_at_same_seed(self):
+        from training.scenarios import build_scenario_plan
+        p1 = build_scenario_plan(n_episodes=10, seed=42)
+        p2 = build_scenario_plan(n_episodes=10, seed=42)
+        assert p1 == p2
+
+    def test_benign_gets_zero_progress(self):
+        from training.scenarios import build_scenario_plan
+        plan = build_scenario_plan(n_episodes=200, seed=42)
+        for entry in plan:
+            if entry["scenario_type"] == "benign":
+                assert entry["attack_progress"] == 0.0
+            else:
+                assert 0.2 <= entry["attack_progress"] <= 0.9
+
+    def test_save_load_round_trip(self):
+        from training.scenarios import (
+            build_scenario_plan, save_scenario_plan, load_scenario_plan,
+        )
+        plan = build_scenario_plan(n_episodes=7, seed=42)
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as f:
+            path = f.name
+        save_scenario_plan(plan, path)
+        loaded = load_scenario_plan(path)
+        assert loaded == plan
+        Path(path).unlink()
+
+
+class TestPrepareDatasetMatchesSavedPlan:
+    """The plan saved to disk must match what prepare_dataset produces."""
+
+    def test_dataset_matches_plan_1_to_1(self):
+        from training.scenarios import build_scenario_plan
+        from training.train_grpo import TrainingConfig, prepare_dataset
+
+        config = TrainingConfig(n_episodes=10, seed=42)
+        dataset = prepare_dataset(config)
+        plan = build_scenario_plan(
+            n_episodes=config.n_episodes,
+            observability_levels=config.observability_levels,
+            seed=config.seed,
+            n_history=config.n_history,
+        )
+
+        assert len(dataset) == len(plan)
+        for row, expected in zip(dataset, plan):
+            assert json.loads(row["scenario_data"]) == expected

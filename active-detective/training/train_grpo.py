@@ -35,7 +35,12 @@ from simulator.models import GroundTruth, ScenarioType, Verdict
 from simulator.telemetry import generate_episode
 from tools.inspection import TOOL_COSTS, VALID_VERDICTS
 from training.prompts import build_system_prompt
-from training.scenarios import generate_training_scenarios, save_scenarios
+from training.scenarios import (
+    build_scenario_plan,
+    generate_training_scenarios,
+    save_scenario_plan,
+    save_scenarios,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -501,11 +506,16 @@ def prepare_dataset(config: TrainingConfig) -> list[dict]:
     Each item has:
     - 'prompt': chat messages (system + user with telemetry placeholder)
     - 'scenario_data': JSON string with episode metadata for env.reset()
+
+    Uses build_scenario_plan so the dataset matches exactly what
+    save_scenario_plan writes to disk. No episodes are generated here;
+    the env regenerates them from scenario_data at rollout time.
     """
-    batch = generate_training_scenarios(
+    plan = build_scenario_plan(
         n_episodes=config.n_episodes,
         observability_levels=config.observability_levels,
         seed=config.seed,
+        n_history=config.n_history,
     )
 
     system_prompt = build_system_prompt(
@@ -513,37 +523,15 @@ def prepare_dataset(config: TrainingConfig) -> list[dict]:
         available_tools=config.available_tools,
     )
 
-    rng = np.random.RandomState(config.seed)
-    dataset = []
+    prompt = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "Analyze the following telemetry window."},
+    ]
 
-    for ep in batch.episodes:
-        # Generate a unique seed for this episode's environment
-        ep_seed = int(rng.randint(0, 2**31))
-
-        attack_progress = 0.0
-        if ep.scenario_type != ScenarioType.BENIGN:
-            attack_progress = rng.uniform(0.2, 0.9)
-
-        scenario_data = {
-            "scenario_type": ep.scenario_type.value,
-            "observability": ep.observability,
-            "attack_progress": attack_progress,
-            "seed": ep_seed,
-            "n_history": config.n_history,
-        }
-
-        # Prompt in conversational format — telemetry injected by env.reset()
-        prompt = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "Analyze the following telemetry window."},
-        ]
-
-        dataset.append({
-            "prompt": prompt,
-            "scenario_data": json.dumps(scenario_data),
-        })
-
-    return dataset
+    return [
+        {"prompt": prompt, "scenario_data": json.dumps(entry)}
+        for entry in plan
+    ]
 
 
 # ── Model loading ────────────────────────────────────────────────────
@@ -651,10 +639,16 @@ def train(config: TrainingConfig) -> None:
     logger.info(f"Generating {config.n_episodes} training scenarios...")
     dataset_items = prepare_dataset(config)
 
-    # Save scenarios for reproducibility
-    save_scenarios(
-        generate_training_scenarios(
-            n_episodes=config.n_episodes, seed=config.seed),
+    # Save the exact plan the env will roll out. One JSON line per
+    # dataset row, each directly usable as scenario_data for replay.
+    plan = build_scenario_plan(
+        n_episodes=config.n_episodes,
+        observability_levels=config.observability_levels,
+        seed=config.seed,
+        n_history=config.n_history,
+    )
+    save_scenario_plan(
+        plan,
         Path(config.output_dir) / "training_scenarios.jsonl",
     )
 
