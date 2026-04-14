@@ -169,20 +169,8 @@ def _map_positional_args(tool_name: str, values: list) -> dict:
     if not values:
         return {}
 
-    param_maps = {
-        "inspect_file": ["path"],
-        "check_process": ["pid"],
-        "scan_directory": ["path"],
-        "list_connections": ["filter"],
-        "inspect_connection": ["conn_id"],
-        "query_registry": ["key_path"],
-        "list_process_handles": ["pid"],
-        "query_event_log": ["source", "event_id", "since"],
-        "read_file_sample": ["path", "offset", "length"],
-        "DECIDE": ["verdict", "explanation"],
-    }
-
-    params = param_maps.get(tool_name, [])
+    from tools.inspection import TOOL_PARAMS
+    params = TOOL_PARAMS.get(tool_name, ())
     result = {}
     for i, val in enumerate(values):
         if i < len(params):

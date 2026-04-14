@@ -6,24 +6,61 @@ Each tool takes simulator state and returns a JSON-serializable dict.
 
 from __future__ import annotations
 
+from enum import Enum
+from typing import Callable
+
 from simulator.host import HostState
+from simulator.models import Verdict
 from simulator.registry import FileRegistry, ProcessTable
+
+
+class ToolName(str, Enum):
+    """Canonical tool identifiers. String values match wire format."""
+
+    INSPECT_FILE = "inspect_file"
+    CHECK_PROCESS = "check_process"
+    SCAN_DIRECTORY = "scan_directory"
+    LIST_CONNECTIONS = "list_connections"
+    INSPECT_CONNECTION = "inspect_connection"
+    QUERY_REGISTRY = "query_registry"
+    LIST_PROCESS_HANDLES = "list_process_handles"
+    QUERY_EVENT_LOG = "query_event_log"
+    READ_FILE_SAMPLE = "read_file_sample"
+    DECIDE = "DECIDE"
+
 
 # Tool name → cost (negative values, subtracted from reward)
 TOOL_COSTS: dict[str, float] = {
-    "inspect_file": -0.02,
-    "check_process": -0.02,
-    "scan_directory": -0.05,
-    "list_connections": -0.03,
-    "inspect_connection": -0.03,
-    "query_registry": -0.03,
-    "list_process_handles": -0.03,
-    "query_event_log": -0.04,
-    "read_file_sample": -0.04,
-    "DECIDE": 0.0,
+    ToolName.INSPECT_FILE.value: -0.02,
+    ToolName.CHECK_PROCESS.value: -0.02,
+    ToolName.SCAN_DIRECTORY.value: -0.05,
+    ToolName.LIST_CONNECTIONS.value: -0.03,
+    ToolName.INSPECT_CONNECTION.value: -0.03,
+    ToolName.QUERY_REGISTRY.value: -0.03,
+    ToolName.LIST_PROCESS_HANDLES.value: -0.03,
+    ToolName.QUERY_EVENT_LOG.value: -0.04,
+    ToolName.READ_FILE_SAMPLE.value: -0.04,
+    ToolName.DECIDE.value: 0.0,
 }
 
-VALID_VERDICTS = {"ignore", "monitor", "alert", "quarantine", "block"}
+
+# Parameter names by positional order (for parser.py fallback)
+TOOL_PARAMS: dict[str, tuple[str, ...]] = {
+    ToolName.INSPECT_FILE.value: ("path",),
+    ToolName.CHECK_PROCESS.value: ("pid",),
+    ToolName.SCAN_DIRECTORY.value: ("path",),
+    ToolName.LIST_CONNECTIONS.value: ("filter",),
+    ToolName.INSPECT_CONNECTION.value: ("conn_id",),
+    ToolName.QUERY_REGISTRY.value: ("key_path",),
+    ToolName.LIST_PROCESS_HANDLES.value: ("pid",),
+    ToolName.QUERY_EVENT_LOG.value: ("source", "event_id", "since"),
+    ToolName.READ_FILE_SAMPLE.value: ("path", "offset", "length"),
+    ToolName.DECIDE.value: ("verdict", "explanation"),
+}
+
+
+# Derived from Verdict enum, single source of truth
+VALID_VERDICTS: set[str] = {v.value for v in Verdict}
 
 
 def inspect_file(registry: FileRegistry, path: str) -> dict:
@@ -86,6 +123,99 @@ def scan_directory(registry: FileRegistry, path: str) -> dict:
     }
 
 
+# ── Dispatch table ───────────────────────────────────────────────────
+#
+# Each entry maps a ToolName to a callable that takes (host, args) and
+# returns the result dict. Cost is looked up via TOOL_COSTS separately.
+
+
+def _do_inspect_file(host: HostState, args: dict) -> dict:
+    return inspect_file(host.files, args.get("path", ""))
+
+
+def _do_check_process(host: HostState, args: dict) -> dict:
+    pid = args.get("pid")
+    if pid is None:
+        return {"error": "Missing 'pid' argument"}
+    return check_process(host.processes, int(pid))
+
+
+def _do_scan_directory(host: HostState, args: dict) -> dict:
+    return scan_directory(host.files, args.get("path", ""))
+
+
+def _do_list_connections(host: HostState, args: dict) -> dict:
+    from tools.network_tools import list_connections
+    filter_state = args.get("filter", args.get("filter_state"))
+    return list_connections(host.connections, filter_state)
+
+
+def _do_inspect_connection(host: HostState, args: dict) -> dict:
+    from tools.network_tools import inspect_connection
+    conn_id = args.get("conn_id")
+    if conn_id is None:
+        return {"error": "Missing 'conn_id' argument"}
+    return inspect_connection(host.connections, int(conn_id))
+
+
+def _do_query_registry(host: HostState, args: dict) -> dict:
+    from tools.forensic_tools import query_registry
+    return query_registry(host.registry, args.get("key_path", ""))
+
+
+def _do_list_process_handles(host: HostState, args: dict) -> dict:
+    from tools.forensic_tools import list_process_handles
+    pid = args.get("pid")
+    if pid is None:
+        return {"error": "Missing 'pid' argument"}
+    return list_process_handles(host.processes, int(pid))
+
+
+def _do_query_event_log(host: HostState, args: dict) -> dict:
+    from tools.forensic_tools import query_event_log
+    return query_event_log(
+        host.event_log,
+        source=args.get("source"),
+        event_id=args.get("event_id"),
+        since=args.get("since"),
+    )
+
+
+def _do_read_file_sample(host: HostState, args: dict) -> dict:
+    from tools.forensic_tools import read_file_sample
+    return read_file_sample(
+        host.files,
+        args.get("path", ""),
+        int(args.get("offset", 0)),
+        int(args.get("length", 256)),
+    )
+
+
+def _do_decide(host: HostState, args: dict) -> dict:
+    verdict = args.get("verdict", "")
+    explanation = args.get("explanation", "")
+    if verdict not in VALID_VERDICTS:
+        return {
+            "error": f"Invalid verdict '{verdict}'. "
+                     f"Must be one of: {', '.join(sorted(VALID_VERDICTS))}"
+        }
+    return {"verdict": verdict, "explanation": explanation}
+
+
+_DISPATCH: dict[str, Callable[[HostState, dict], dict]] = {
+    ToolName.INSPECT_FILE.value: _do_inspect_file,
+    ToolName.CHECK_PROCESS.value: _do_check_process,
+    ToolName.SCAN_DIRECTORY.value: _do_scan_directory,
+    ToolName.LIST_CONNECTIONS.value: _do_list_connections,
+    ToolName.INSPECT_CONNECTION.value: _do_inspect_connection,
+    ToolName.QUERY_REGISTRY.value: _do_query_registry,
+    ToolName.LIST_PROCESS_HANDLES.value: _do_list_process_handles,
+    ToolName.QUERY_EVENT_LOG.value: _do_query_event_log,
+    ToolName.READ_FILE_SAMPLE.value: _do_read_file_sample,
+    ToolName.DECIDE.value: _do_decide,
+}
+
+
 def execute_tool(
     tool_name: str,
     args: dict,
@@ -93,76 +223,18 @@ def execute_tool(
 ) -> tuple[dict, float]:
     """Execute a tool by name and return (result_dict, cost).
 
-    Dispatches to the appropriate tool function.
+    Unknown tools return an error with zero cost. Tools that error
+    (missing arg, invalid verdict, etc.) still charge the tool cost
+    except DECIDE, which is always free.
     """
-    if tool_name == "inspect_file":
-        path = args.get("path", "")
-        return inspect_file(host.files, path), TOOL_COSTS["inspect_file"]
-
-    elif tool_name == "check_process":
-        pid = args.get("pid")
-        if pid is None:
-            return {"error": "Missing 'pid' argument"}, TOOL_COSTS["check_process"]
-        return check_process(host.processes, int(pid)), TOOL_COSTS["check_process"]
-
-    elif tool_name == "scan_directory":
-        path = args.get("path", "")
-        return scan_directory(host.files, path), TOOL_COSTS["scan_directory"]
-
-    elif tool_name == "list_connections":
-        from tools.network_tools import list_connections
-        filter_state = args.get("filter", args.get("filter_state"))
-        return list_connections(host.connections, filter_state), \
-               TOOL_COSTS["list_connections"]
-
-    elif tool_name == "inspect_connection":
-        from tools.network_tools import inspect_connection
-        conn_id = args.get("conn_id")
-        if conn_id is None:
-            return {"error": "Missing 'conn_id' argument"}, \
-                   TOOL_COSTS["inspect_connection"]
-        return inspect_connection(host.connections, int(conn_id)), \
-               TOOL_COSTS["inspect_connection"]
-
-    elif tool_name == "query_registry":
-        from tools.forensic_tools import query_registry
-        key_path = args.get("key_path", "")
-        return query_registry(host.registry, key_path), \
-               TOOL_COSTS["query_registry"]
-
-    elif tool_name == "list_process_handles":
-        from tools.forensic_tools import list_process_handles
-        pid = args.get("pid")
-        if pid is None:
-            return {"error": "Missing 'pid' argument"}, \
-                   TOOL_COSTS["list_process_handles"]
-        return list_process_handles(host.processes, int(pid)), \
-               TOOL_COSTS["list_process_handles"]
-
-    elif tool_name == "query_event_log":
-        from tools.forensic_tools import query_event_log
-        return query_event_log(
-            host.event_log,
-            source=args.get("source"),
-            event_id=args.get("event_id"),
-            since=args.get("since"),
-        ), TOOL_COSTS["query_event_log"]
-
-    elif tool_name == "read_file_sample":
-        from tools.forensic_tools import read_file_sample
-        path = args.get("path", "")
-        offset = int(args.get("offset", 0))
-        length = int(args.get("length", 256))
-        return read_file_sample(host.files, path, offset, length), \
-               TOOL_COSTS["read_file_sample"]
-
-    elif tool_name == "DECIDE":
-        verdict = args.get("verdict", "")
-        explanation = args.get("explanation", "")
-        if verdict not in VALID_VERDICTS:
-            return {"error": f"Invalid verdict '{verdict}'. "
-                    f"Must be one of: {', '.join(sorted(VALID_VERDICTS))}"}, 0.0
-        return {"verdict": verdict, "explanation": explanation}, TOOL_COSTS["DECIDE"]
-
-    else:
+    handler = _DISPATCH.get(tool_name)
+    if handler is None:
         return {"error": f"Unknown tool: {tool_name}"}, 0.0
+
+    result = handler(host, args)
+
+    # DECIDE charges no cost regardless of validity
+    if tool_name == ToolName.DECIDE.value:
+        return result, 0.0
+
+    return result, TOOL_COSTS.get(tool_name, 0.0)

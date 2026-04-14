@@ -33,7 +33,7 @@ import numpy as np
 from simulator.host import HostState
 from simulator.models import GroundTruth, ScenarioType, Verdict
 from simulator.telemetry import generate_episode
-from tools.inspection import TOOL_COSTS, VALID_VERDICTS
+from tools.inspection import TOOL_COSTS, VALID_VERDICTS, ToolName, execute_tool
 from training.prompts import build_system_prompt
 from training.scenarios import (
     build_scenario_plan,
@@ -147,10 +147,40 @@ class DetectionEnv:
 
         return episode.input_text
 
+    # ── Tool dispatch helper ─────────────────────────────────────────
+
+    def _invoke_tool(self, tool: ToolName, args: dict) -> str:
+        """Common dispatch path for all tool methods.
+
+        Enforces the k_max budget and delegates to execute_tool to
+        eliminate drift with the evaluation environment. DECIDE is
+        always permitted even over budget so the agent can still
+        render a verdict after exhausting its investigation budget.
+        """
+        if self._host is None:
+            return json.dumps({"error": "Env not reset before tool invocation"})
+
+        is_decide = tool == ToolName.DECIDE
+        if not is_decide and self._steps >= self._k_max:
+            return json.dumps({
+                "error": f"Investigation budget exhausted (k_max={self._k_max}). "
+                         f"Call DECIDE to render a verdict."
+            })
+
+        result, cost = execute_tool(tool.value, args, self._host)
+        self._steps += 1
+        self._cumulative_cost += cost
+
+        if is_decide and "verdict" in result:
+            self._verdict = result["verdict"]
+            self._explanation = result.get("explanation", "")
+
+        return json.dumps(result, default=str)
+
     # ── Tools (public methods exposed by TRL) ────────────────────────
 
     def inspect_file(self, path: str) -> str:
-        """Inspect a file's metadata — entropy, size, extension, timestamps, content type.
+        """Inspect a file's metadata, entropy, size, extension, timestamps, content type.
 
         Args:
             path: Full path to the file to inspect (e.g., "C:/Users/A/Documents/report.docx").
@@ -158,23 +188,10 @@ class DetectionEnv:
         Returns:
             JSON string with file metadata or error message.
         """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["inspect_file"]
-
-        record = self._host.files.get_file(path)
-        if record is None:
-            return json.dumps({"error": f"File not found: {path}"})
-
-        return json.dumps({
-            "entropy": round(record.entropy, 2),
-            "size": record.size,
-            "extension": record.extension,
-            "modified_ts": record.modified_at.isoformat(),
-            "content_type": record.content_type.value,
-        })
+        return self._invoke_tool(ToolName.INSPECT_FILE, {"path": path})
 
     def check_process(self, pid: int) -> str:
-        """Check a running process by PID — name, command line, parent, children.
+        """Check a running process by PID: name, command line, parent, children.
 
         Args:
             pid: Process ID to look up.
@@ -182,22 +199,7 @@ class DetectionEnv:
         Returns:
             JSON string with process details or error message.
         """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["check_process"]
-
-        record = self._host.processes.get_process(pid)
-        if record is None:
-            return json.dumps({"error": f"Process not found: pid={pid}"})
-
-        parent = self._host.processes.get_process(record.parent_pid)
-        parent_name = parent.name if parent else "unknown"
-
-        return json.dumps({
-            "name": record.name,
-            "command_line": record.command_line,
-            "parent": parent_name,
-            "child_pids": record.child_pids,
-        })
+        return self._invoke_tool(ToolName.CHECK_PROCESS, {"pid": pid})
 
     def scan_directory(self, path: str) -> str:
         """List files in a directory with metadata summaries. More expensive but reveals more.
@@ -208,24 +210,7 @@ class DetectionEnv:
         Returns:
             JSON string with list of files and their metadata.
         """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["scan_directory"]
-
-        files = self._host.files.list_directory(path)
-        if not files:
-            return json.dumps({"files": [], "note": f"No files found in {path}"})
-
-        return json.dumps({
-            "files": [
-                {
-                    "path": f.path,
-                    "size": f.size,
-                    "entropy": round(f.entropy, 2),
-                    "extension": f.extension,
-                }
-                for f in files
-            ]
-        })
+        return self._invoke_tool(ToolName.SCAN_DIRECTORY, {"path": path})
 
     def list_connections(self, filter_state: str = "") -> str:
         """List active network connections, optionally filtered by state.
@@ -236,15 +221,8 @@ class DetectionEnv:
         Returns:
             JSON string with list of connections.
         """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["list_connections"]
-
-        from tools.network_tools import list_connections as _list_connections
-        result = _list_connections(
-            self._host.connections,
-            filter_state=filter_state if filter_state else None,
-        )
-        return json.dumps(result)
+        args = {"filter_state": filter_state} if filter_state else {}
+        return self._invoke_tool(ToolName.LIST_CONNECTIONS, args)
 
     def inspect_connection(self, conn_id: int) -> str:
         """Inspect a specific network connection by ID.
@@ -255,12 +233,7 @@ class DetectionEnv:
         Returns:
             JSON string with connection details or error message.
         """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["inspect_connection"]
-
-        from tools.network_tools import inspect_connection as _inspect_connection
-        result = _inspect_connection(self._host.connections, conn_id)
-        return json.dumps(result, default=str)
+        return self._invoke_tool(ToolName.INSPECT_CONNECTION, {"conn_id": conn_id})
 
     def query_registry(self, key_path: str) -> str:
         """Query a Windows registry key for values and sub-keys.
@@ -271,12 +244,7 @@ class DetectionEnv:
         Returns:
             JSON string with registry values or error message.
         """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["query_registry"]
-
-        from tools.forensic_tools import query_registry as _query_registry
-        result = _query_registry(self._host.registry, key_path)
-        return json.dumps(result)
+        return self._invoke_tool(ToolName.QUERY_REGISTRY, {"key_path": key_path})
 
     def list_process_handles(self, pid: int) -> str:
         """List a process's open file handles, loaded modules, and integrity info.
@@ -287,12 +255,7 @@ class DetectionEnv:
         Returns:
             JSON string with process forensic details or error message.
         """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["list_process_handles"]
-
-        from tools.forensic_tools import list_process_handles as _list_process_handles
-        result = _list_process_handles(self._host.processes, pid)
-        return json.dumps(result)
+        return self._invoke_tool(ToolName.LIST_PROCESS_HANDLES, {"pid": pid})
 
     def query_event_log(self, source: str = "", event_id: int = 0,
                         since: str = "") -> str:
@@ -306,17 +269,14 @@ class DetectionEnv:
         Returns:
             JSON string with matching event log entries.
         """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["query_event_log"]
-
-        from tools.forensic_tools import query_event_log as _query_event_log
-        result = _query_event_log(
-            self._host.event_log,
-            source=source if source else None,
-            event_id=event_id if event_id else None,
-            since=since if since else None,
-        )
-        return json.dumps(result, default=str)
+        args: dict = {}
+        if source:
+            args["source"] = source
+        if event_id:
+            args["event_id"] = event_id
+        if since:
+            args["since"] = since
+        return self._invoke_tool(ToolName.QUERY_EVENT_LOG, args)
 
     def read_file_sample(self, path: str) -> str:
         """Read a hex sample of file contents with entropy and magic bytes analysis.
@@ -327,12 +287,7 @@ class DetectionEnv:
         Returns:
             JSON string with hex bytes, entropy, and magic bytes, or error message.
         """
-        self._steps += 1
-        self._cumulative_cost += TOOL_COSTS["read_file_sample"]
-
-        from tools.forensic_tools import read_file_sample as _read_file_sample
-        result = _read_file_sample(self._host.files, path)
-        return json.dumps(result)
+        return self._invoke_tool(ToolName.READ_FILE_SAMPLE, {"path": path})
 
     def decide(self, verdict: str, explanation: str) -> str:
         """Submit your final verdict. This ends the investigation.
@@ -344,18 +299,10 @@ class DetectionEnv:
         Returns:
             Confirmation of the verdict submitted.
         """
-        self._steps += 1
-        self._verdict = verdict
-        self._explanation = explanation
-
-        if verdict not in VALID_VERDICTS:
-            return json.dumps({
-                "error": f"Invalid verdict '{verdict}'. "
-                         f"Must be one of: {', '.join(sorted(VALID_VERDICTS))}"
-            })
-
-        return json.dumps({"verdict": verdict, "explanation": explanation,
-                           "status": "Investigation complete."})
+        return self._invoke_tool(
+            ToolName.DECIDE,
+            {"verdict": verdict, "explanation": explanation},
+        )
 
 
 # ── Reward function ──────────────────────────────────────────────────

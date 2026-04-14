@@ -441,3 +441,109 @@ class TestTrainingConfig:
         config = TrainingConfig()
         assert 0.3 in config.observability_levels
         assert 0.9 in config.observability_levels
+
+
+# ── Phase 1 tests: budget enforcement + verdict validation ───────────
+
+
+class TestBudgetEnforcement:
+    """k_max budget must be enforced by DetectionEnv tool methods.
+
+    Before Phase 1, DetectionEnv had no budget cap. An agent could call
+    50+ tools, unbounded negative cost, destroying the active-investigation
+    premise. These tests pin the new behavior.
+    """
+
+    def _scenario_data(self, **kwargs):
+        data = {
+            "scenario_type": "benign",
+            "observability": 0.9,
+            "attack_progress": 0.0,
+            "seed": 42,
+            "n_history": 0,
+        }
+        data.update(kwargs)
+        return json.dumps(data)
+
+    def test_budget_exhaustion_returns_error(self):
+        """After k_max non-decide calls, further tool calls return error."""
+        env = DetectionEnv(k_max=2)
+        env.reset(scenario_data=self._scenario_data())
+
+        env.check_process(4)  # step 1
+        env.check_process(4)  # step 2 (at budget)
+        result = json.loads(env.check_process(4))  # over budget
+        assert "error" in result
+        assert "budget" in result["error"].lower()
+
+    def test_budget_exhaustion_does_not_add_cost(self):
+        """Over-budget tool calls must not accumulate more cost."""
+        env = DetectionEnv(k_max=2)
+        env.reset(scenario_data=self._scenario_data())
+
+        env.check_process(4)
+        env.check_process(4)
+        cost_at_budget = env._cumulative_cost
+
+        env.check_process(4)  # over budget
+        env.inspect_file("C:/x.txt")  # over budget
+
+        assert env._cumulative_cost == cost_at_budget
+
+    def test_decide_allowed_at_budget(self):
+        """decide() should work even when budget is exhausted."""
+        env = DetectionEnv(k_max=2)
+        env.reset(scenario_data=self._scenario_data())
+
+        env.check_process(4)
+        env.check_process(4)
+        result = json.loads(env.decide("ignore", "safe"))
+        assert "verdict" in result
+        assert env._verdict == "ignore"
+
+
+class TestDecideValidationOrder:
+    """decide() must validate before setting _verdict state.
+
+    Before Phase 1, an invalid verdict like 'invalid_verdict' would be
+    assigned to env._verdict anyway, then an error was returned. This
+    corrupted the reward computation which trusted _verdict.
+    """
+
+    def test_invalid_verdict_does_not_set_state(self):
+        env = DetectionEnv()
+        env.reset(scenario_data=json.dumps({
+            "scenario_type": "benign",
+            "observability": 0.9,
+            "attack_progress": 0.0,
+            "seed": 42,
+            "n_history": 0,
+        }))
+        env.decide("nonsense_verdict", "whatever")
+        assert env._verdict is None
+
+    def test_invalid_verdict_does_not_overwrite_prior_valid(self):
+        """An invalid decide after a valid one should not corrupt state."""
+        env = DetectionEnv()
+        env.reset(scenario_data=json.dumps({
+            "scenario_type": "benign",
+            "observability": 0.9,
+            "attack_progress": 0.0,
+            "seed": 42,
+            "n_history": 0,
+        }))
+        env.decide("ignore", "first")
+        env.decide("bogus", "second")
+        assert env._verdict == "ignore"
+
+
+class TestToolNameEnum:
+    """A ToolName enum should be the single source of truth for tool names."""
+
+    def test_enum_matches_tool_costs(self):
+        from tools.inspection import TOOL_COSTS, ToolName
+        assert set(tn.value for tn in ToolName) == set(TOOL_COSTS.keys())
+
+    def test_valid_verdicts_derived_from_verdict_enum(self):
+        from tools.inspection import VALID_VERDICTS
+        assert VALID_VERDICTS == {v.value for v in Verdict}
