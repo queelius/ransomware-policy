@@ -3,8 +3,23 @@ __pycache__
 *.out
 *.toc
 *.aux
-*.jsonl
 node_modules/
 package-lock.json
 .benchmarks/
 .claude/worktrees/
+.claude/
+
+# Model checkpoints (too large, regenerate from training)
+checkpoints-*/
+*.safetensors
+*.bin
+
+# Test manifests (generated, not core artifacts)
+eval_manifest*.jsonl
+
+# Training caches
+unsloth_compiled_cache/
+
+# Training logs (kept per-run, not versioned)
+grpo_training.log
+*.training.log
