@@ -243,6 +243,62 @@ class HeuristicAgent(BaselineAgent):
         )
 
 
+# ── PassiveLLM baseline ──────────────────────────────────────────────
+
+
+class PassiveLLM(BaselineAgent):
+    """LLM-based agent that renders a verdict without using any tools.
+
+    Contrasts with the Active Detective: same model, same prompt
+    (minus tool descriptions), but forced to decide from passive
+    telemetry alone. Tests whether tool-based active investigation
+    actually improves detection over prompt-only classification.
+
+    The `model_fn` callable takes a telemetry string and returns
+    the raw model completion text. At training time this would be
+    a forward pass through Qwen3.5-9B; for unit tests a simple
+    heuristic fn is sufficient.
+    """
+
+    name = "passive_llm"
+
+    def __init__(self, model_fn, k_max: int = 5) -> None:
+        self.k_max = k_max
+        self.model_fn = model_fn
+
+    def act(self, env, telemetry_text, rng):
+        completion = self.model_fn(telemetry_text)
+        verdict = _extract_verdict(completion) or "ignore"
+
+        if not env.is_done:
+            env.step(ParsedToolCall(
+                "DECIDE",
+                {"verdict": verdict, "explanation": "passive LLM classification"},
+                "",
+            ))
+
+        rollout = env.finish()
+        return EvalResult(
+            verdict=rollout.verdict,
+            is_ransomware_gt=rollout.ground_truth.is_ransomware,
+            scenario_type=rollout.ground_truth.scenario_type.value,
+            attack_phase=rollout.ground_truth.attack_phase,
+            steps_taken=1,
+            cumulative_cost=0.0,
+            k_max=self.k_max,
+            tools_used=["DECIDE"],
+        )
+
+
+def _extract_verdict(completion: str) -> str | None:
+    """Pull a verdict word from model output."""
+    lowered = completion.lower()
+    for v in sorted(VALID_VERDICTS, key=len, reverse=True):
+        if v in lowered:
+            return v
+    return None
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 

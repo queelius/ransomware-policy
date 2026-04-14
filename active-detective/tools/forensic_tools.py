@@ -118,8 +118,9 @@ def read_file_sample(
 ) -> dict:
     """Read a raw byte sample from a file. Cost: -0.04.
 
-    Returns hex-encoded bytes, computed entropy, and magic bytes.
-    Returns error if the file has no contents.
+    Returns hex-encoded bytes, computed entropy, and magic bytes on
+    success. On error returns only {"error": ...}. Never mixes error
+    with data.
     """
     record = file_registry.get_file(path)
     if record is None:
@@ -127,20 +128,9 @@ def read_file_sample(
 
     sample = file_registry.read_file_sample(path, offset, length)
     if sample is None:
-        return {
-            "error": "File contents not available for sampling",
-            "path": path,
-            "metadata_only": {
-                "entropy": round(record.entropy, 2),
-                "size": record.size,
-                "extension": record.extension,
-            },
-        }
+        return {"error": f"File contents not available for sampling: {path}"}
 
-    # Compute sample entropy
     sample_entropy = _compute_entropy(sample)
-
-    # First 4 bytes as magic number
     magic = sample[:4].hex() if len(sample) >= 4 else sample.hex()
 
     return {

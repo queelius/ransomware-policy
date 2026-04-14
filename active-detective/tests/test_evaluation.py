@@ -17,6 +17,7 @@ from evaluation.ablation import (
 from evaluation.baselines import (
     ExhaustiveAgent,
     HeuristicAgent,
+    PassiveLLM,
     RandomAgent,
     evaluate_baseline,
     _extract_entropy_deltas,
@@ -224,9 +225,9 @@ class TestExhaustiveAgent:
     def test_produces_valid_verdicts(self, small_scenarios):
         agent = ExhaustiveAgent(k_max=3)
         results = evaluate_baseline(agent, small_scenarios, k_max=3, seed=42)
+        from tools.inspection import VALID_VERDICTS
         for r in results:
-            assert r.verdict in ABLATION_VARIANTS  or r.verdict in {
-                "ignore", "monitor", "alert", "quarantine", "block"}
+            assert r.verdict in VALID_VERDICTS
 
 
 class TestHeuristicAgent:
@@ -241,6 +242,37 @@ class TestHeuristicAgent:
         results = evaluate_baseline(agent, small_scenarios, k_max=5, seed=42)
         for r in results:
             assert r.tools_used == ["DECIDE"]
+
+
+class TestPassiveLLM:
+    """PassiveLLM baseline: classify from telemetry alone, no tools."""
+
+    def test_uses_only_decide(self, small_scenarios):
+        agent = PassiveLLM(model_fn=lambda _: "alert")
+        results = evaluate_baseline(agent, small_scenarios, k_max=5, seed=42)
+        for r in results:
+            assert r.tools_used == ["DECIDE"]
+            assert r.steps_taken == 1
+
+    def test_model_fn_verdict_used(self, small_scenarios):
+        def always_block(text: str) -> str:
+            return "I think this is ransomware; verdict: block"
+        agent = PassiveLLM(model_fn=always_block)
+        results = evaluate_baseline(agent, small_scenarios, k_max=5, seed=42)
+        for r in results:
+            assert r.verdict == "block"
+
+    def test_defaults_to_ignore_on_unclear_output(self, small_scenarios):
+        agent = PassiveLLM(model_fn=lambda _: "I'm not sure what to do")
+        results = evaluate_baseline(agent, small_scenarios, k_max=5, seed=42)
+        for r in results:
+            assert r.verdict == "ignore"
+
+    def test_zero_tool_cost(self, small_scenarios):
+        agent = PassiveLLM(model_fn=lambda _: "monitor")
+        results = evaluate_baseline(agent, small_scenarios, k_max=5, seed=42)
+        for r in results:
+            assert r.cumulative_cost == 0.0
 
 
 class TestHelperFunctions:

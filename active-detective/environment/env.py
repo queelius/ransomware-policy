@@ -97,6 +97,15 @@ class RansomwareDetectionEnv:
     def budget_remaining(self) -> int:
         return max(0, self.max_steps - self.steps_taken)
 
+    @property
+    def host(self) -> HostState | None:
+        """The HostState bound to this episode (read-only reference).
+
+        Exposed so evaluation scripts can inspect simulator state
+        without reaching into private attributes.
+        """
+        return self._host
+
     def reset(
         self,
         scenario_type: ScenarioType,
