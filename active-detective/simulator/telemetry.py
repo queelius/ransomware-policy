@@ -126,19 +126,16 @@ _BENIGN_GENERATORS = [gen.office_edits, gen.browser_downloads,
 _EXTRA_BENIGN_GENERATORS = [gen.backup_operations, gen.av_scan]
 
 
-def _generate_window(
+def _run_generators_on_host(
+    host: HostState,
     scenario_type: ScenarioType,
-    observability: float,
     rng: np.random.RandomState,
-    window_time: datetime,
     attack_progress: float,
-) -> tuple[str, str | None, HostState]:
-    """Generate a single telemetry window and return (formatted_text, attack_phase, host).
+) -> tuple[list[TelemetryEvent], str | None]:
+    """Run benign + scenario generators against a shared host.
 
-    Creates a fresh HostState, runs benign background + scenario generators,
-    applies observability filter, and formats the result.
+    Returns (all_events, attack_phase). Mutates `host` in place.
     """
-    host = HostState.create(rng, window_time)
     all_events: list[TelemetryEvent] = []
     attack_phase: str | None = None
 
@@ -148,7 +145,6 @@ def _generate_window(
     for idx in chosen_benign:
         all_events.extend(_BENIGN_GENERATORS[idx](host, rng))
 
-    # Add scenario-specific events
     if scenario_type == ScenarioType.BENIGN:
         if rng.random() < 0.4:
             gen_fn = _EXTRA_BENIGN_GENERATORS[rng.randint(0, len(_EXTRA_BENIGN_GENERATORS))]
@@ -160,12 +156,7 @@ def _generate_window(
     else:
         raise ValueError(f"Unknown scenario type: {scenario_type}")
 
-    # Apply observability filter
-    visible_events = apply_observability_filter(all_events, observability, rng)
-
-    # Format into text
-    window_text = format_telemetry_window(visible_events, window_time)
-    return window_text, attack_phase, host
+    return all_events, attack_phase
 
 
 def generate_episode(
@@ -178,65 +169,58 @@ def generate_episode(
 ) -> Episode:
     """Generate a single episode with telemetry window and history.
 
-    Seeds a full host state, runs generators for one window, applies
-    observability filter, and returns formatted episode.
+    Uses one shared HostState across all windows so history reflects
+    real state evolution: files encrypted in t-2 remain encrypted in
+    the current window, process lineage is preserved, etc.
 
-    When ``n_history > 0``, generates prior telemetry windows at
-    earlier timestamps and lower attack progress to give the agent
-    temporal context.
+    Each window uses an independent derived RNG so changing n_history
+    at a fixed parent seed does not perturb the current-window draws.
     """
     now = now or datetime(2025, 6, 15, 10, 0, 0)
 
-    # ── Generate history windows (earliest first) ───────────────────
+    # Derive independent per-window RNG streams from the parent rng.
+    # This isolates each window's draws from the others, so n_history
+    # variations don't shift the current window's content.
+    #
+    # Draw the host+current seeds FIRST so they are invariant to
+    # n_history. History seeds come after.
+    host_seed = int(rng.randint(0, 2**31))
+    current_seed = int(rng.randint(0, 2**31))
+    history_seeds = [int(rng.randint(0, 2**31)) for _ in range(n_history)]
+
+    # ── Single shared host seeded at the earliest window time ───────
+    earliest_time = now - timedelta(seconds=120 * n_history)
+    host_rng = np.random.RandomState(host_seed)
+    host = HostState.create(host_rng, earliest_time)
+
+    # ── Replay history windows on the shared host ───────────────────
     history_windows: list[str] = []
     for i in range(n_history):
-        # Each history window is 120 seconds earlier than the next
         window_time = now - timedelta(seconds=120 * (n_history - i))
+        host.clock.reset(window_time)
 
         if scenario_type == ScenarioType.BENIGN:
             hist_progress = 0.0
         else:
-            # Linearly-spaced earlier progress values
             hist_progress = attack_progress * (i + 1) / (n_history + 1)
 
-        hist_text, _, _ = _generate_window(
-            scenario_type, observability, rng, window_time, hist_progress)
-        history_windows.append(hist_text)
+        window_rng = np.random.RandomState(history_seeds[i])
+        hist_events, _ = _run_generators_on_host(
+            host, scenario_type, window_rng, hist_progress)
+        visible = apply_observability_filter(hist_events, observability, window_rng)
+        history_windows.append(format_telemetry_window(visible, window_time))
 
-    # ── Generate the current window (existing logic) ────────────────
-    host = HostState.create(rng, now)
+    # ── Generate the current window on the same host ────────────────
+    host.clock.reset(now)
+    current_rng = np.random.RandomState(current_seed)
+    current_events, attack_phase = _run_generators_on_host(
+        host, scenario_type, current_rng, attack_progress)
 
-    all_events: list[TelemetryEvent] = []
-    attack_phase: str | None = None
-
-    # Always generate some benign background activity
-    n_benign = rng.randint(1, 3)
-    chosen_benign = rng.choice(len(_BENIGN_GENERATORS), size=n_benign, replace=False)
-    for idx in chosen_benign:
-        all_events.extend(_BENIGN_GENERATORS[idx](host, rng))
-
-    # Add attack-specific events
-    if scenario_type == ScenarioType.BENIGN:
-        # Add more benign activity for realism
-        if rng.random() < 0.4:
-            gen_fn = _EXTRA_BENIGN_GENERATORS[rng.randint(0, len(_EXTRA_BENIGN_GENERATORS))]
-            all_events.extend(gen_fn(host, rng))
-        is_ransomware = False
-    elif scenario_type in _ATTACK_GENERATORS:
-        events, attack_phase = _ATTACK_GENERATORS[scenario_type](
-            host, rng, progress=attack_progress)
-        all_events.extend(events)
-        is_ransomware = True
-    else:
-        raise ValueError(f"Unknown scenario type: {scenario_type}")
-
-    raw_count = len(all_events)
-
-    # Apply observability filter
-    visible_events = apply_observability_filter(all_events, observability, rng)
-
-    # Format into text
+    raw_count = len(current_events)
+    visible_events = apply_observability_filter(current_events, observability, current_rng)
     window_text = format_telemetry_window(visible_events, now)
+
+    is_ransomware = scenario_type != ScenarioType.BENIGN
 
     ground_truth = GroundTruth(
         scenario_type=scenario_type,

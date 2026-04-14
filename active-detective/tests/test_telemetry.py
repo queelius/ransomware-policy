@@ -232,6 +232,92 @@ class TestEpisodeHost:
         # Host should have files seeded
         assert len(episode.host.files.all_paths()) > 0
 
+
+class TestHistoryTemporalCoupling:
+    """Phase 3: history windows must replay on a single shared HostState.
+
+    Before Phase 3, each history window generated an independent
+    HostState.create(), so 'temporal context' was actually noise from
+    different seed draws. A file encrypted in t-2 wasn't encrypted in
+    the current window. These tests pin the new semantics.
+    """
+
+    def test_files_encrypted_in_history_stay_encrypted(self):
+        """BLITZ encryptions in t-2 must persist to current window."""
+        rng = np.random.RandomState(42)
+        episode = generate_episode(
+            ScenarioType.BLITZ, observability=1.0, rng=rng,
+            attack_progress=0.9, n_history=2,
+        )
+        # At attack_progress=0.9, many files should be encrypted across
+        # all 3 windows (t-2, t-1, current). The final host should have
+        # encrypted files present.
+        encrypted = [
+            p for p in episode.host.files.all_paths()
+            if episode.host.files.get_file(p).is_encrypted
+        ]
+        assert len(encrypted) > 0
+
+    def test_ground_truth_invariant_to_n_history(self):
+        """Ground truth (attack phase, is_ransomware) must not depend on n_history.
+
+        Under the broken implementation, history generation consumed parent-
+        rng draws before the current window, shifting scenario sampling so
+        drastically that attack_phase could flip (reconnaissance vs encryption).
+        The fix draws current-window seeds before history seeds.
+        """
+        for progress in (0.1, 0.5, 0.9):
+            ep0 = generate_episode(
+                ScenarioType.BLITZ, observability=1.0,
+                rng=np.random.RandomState(42),
+                attack_progress=progress, n_history=0,
+            )
+            ep2 = generate_episode(
+                ScenarioType.BLITZ, observability=1.0,
+                rng=np.random.RandomState(42),
+                attack_progress=progress, n_history=2,
+            )
+            ep5 = generate_episode(
+                ScenarioType.BLITZ, observability=1.0,
+                rng=np.random.RandomState(42),
+                attack_progress=progress, n_history=5,
+            )
+            assert ep0.ground_truth.attack_phase == ep2.ground_truth.attack_phase == ep5.ground_truth.attack_phase
+            assert ep0.ground_truth.is_ransomware == ep2.ground_truth.is_ransomware
+
+    def test_episode_host_is_final_state(self):
+        """The returned host should reflect all window mutations, not just current."""
+        rng = np.random.RandomState(42)
+        # SLEEPER encrypts very few files per window. With history,
+        # total encrypted files should be higher than a single window.
+        ep_hist = generate_episode(
+            ScenarioType.SLEEPER, observability=1.0,
+            rng=np.random.RandomState(42),
+            attack_progress=0.8, n_history=2,
+        )
+        ep_nohist = generate_episode(
+            ScenarioType.SLEEPER, observability=1.0,
+            rng=np.random.RandomState(42),
+            attack_progress=0.8, n_history=0,
+        )
+        hist_encrypted = sum(
+            1 for p in ep_hist.host.files.all_paths()
+            if ep_hist.host.files.get_file(p).is_encrypted
+        )
+        nohist_encrypted = sum(
+            1 for p in ep_nohist.host.files.all_paths()
+            if ep_nohist.host.files.get_file(p).is_encrypted
+        )
+        # With n_history=2, sleeper encrypts 1-2 per window over 3 windows,
+        # so final host should have strictly more encrypted files than the
+        # single-window case. Under the broken implementation, each window
+        # has its own disconnected host and the final host only reflects
+        # current-window encryptions.
+        assert hist_encrypted > nohist_encrypted, (
+            f"Expected history to accumulate encryptions, got "
+            f"hist={hist_encrypted} vs nohist={nohist_encrypted}"
+        )
+
     def test_episode_host_matches_telemetry_files(self):
         """Files mentioned in telemetry should exist in episode.host."""
         rng = np.random.RandomState(42)
