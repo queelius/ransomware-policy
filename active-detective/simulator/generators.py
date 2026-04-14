@@ -54,12 +54,11 @@ def office_edits(
     # Spawn an office process
     app_name, app_cmd = apps[rng.randint(0, len(apps))]
     explorer = _find_process(host, "explorer.exe")
-    parent_pid = explorer.pid if explorer else 4
-    proc = host.processes.spawn_process(app_name, parent_pid, app_cmd, now)
-    events.append(ProcessEvent(
-        ts=now, pid=proc.pid, name=proc.name,
-        parent_pid=proc.parent_pid, command_line=proc.command_line,
-    ))
+    proc, spawn_evt = _spawn_and_emit(
+        host, app_name, app_cmd,
+        parent_pid=explorer.pid if explorer else 4,
+    )
+    events.append(spawn_evt)
 
     for idx in chosen:
         f = doc_files[idx]
@@ -100,12 +99,11 @@ def browser_downloads(
     browser_name, browser_cmd = browsers[rng.randint(0, len(browsers))]
 
     explorer = _find_process(host, "explorer.exe")
-    parent_pid = explorer.pid if explorer else 4
-    proc = host.processes.spawn_process(browser_name, parent_pid, browser_cmd, now)
-    events.append(ProcessEvent(
-        ts=now, pid=proc.pid, name=proc.name,
-        parent_pid=proc.parent_pid, command_line=proc.command_line,
-    ))
+    proc, spawn_evt = _spawn_and_emit(
+        host, browser_name, browser_cmd,
+        parent_pid=explorer.pid if explorer else 4,
+    )
+    events.append(spawn_evt)
 
     download_types = [
         (ContentType.DOC, ".pdf", (50_000, 5_000_000), (4.0, 5.5)),
@@ -167,15 +165,11 @@ def backup_operations(
     events: list[TelemetryEvent] = []
     now = host.clock.now()
 
-    proc = host.processes.spawn_process(
-        "backup_service.exe", 4,
+    proc, spawn_evt = _spawn_and_emit(
+        host, "backup_service.exe",
         "\"C:\\Program Files\\BackupSvc\\backup_service.exe\" --full-scan",
-        now,
     )
-    events.append(ProcessEvent(
-        ts=now, pid=proc.pid, name=proc.name,
-        parent_pid=proc.parent_pid, command_line=proc.command_line,
-    ))
+    events.append(spawn_evt)
 
     # Touch many files with zero-delta reads
     all_files = host.files.unencrypted_files()
@@ -218,15 +212,11 @@ def av_scan(
     events: list[TelemetryEvent] = []
     now = host.clock.now()
 
-    proc = host.processes.spawn_process(
-        "MsMpEng.exe", 4,
+    proc, spawn_evt = _spawn_and_emit(
+        host, "MsMpEng.exe",
         "\"C:\\ProgramData\\Microsoft\\Windows Defender\\MsMpEng.exe\"",
-        now,
     )
-    events.append(ProcessEvent(
-        ts=now, pid=proc.pid, name=proc.name,
-        parent_pid=proc.parent_pid, command_line=proc.command_line,
-    ))
+    events.append(spawn_evt)
 
     all_files = host.files.unencrypted_files()
     n_scan = min(rng.randint(10, 30), len(all_files))
@@ -272,11 +262,8 @@ def system_maintenance(
         ("cleanmgr.exe", "cleanmgr.exe /autoclean"),
     ]
     name, cmd = maintenance_procs[rng.randint(0, len(maintenance_procs))]
-    proc = host.processes.spawn_process(name, 4, cmd, now)
-    events.append(ProcessEvent(
-        ts=now, pid=proc.pid, name=proc.name,
-        parent_pid=proc.parent_pid, command_line=proc.command_line,
-    ))
+    proc, spawn_evt = _spawn_and_emit(host, name, cmd)
+    events.append(spawn_evt)
 
     # Create temp files
     n_temps = rng.randint(1, 5)
@@ -313,16 +300,12 @@ def blitz_encryptor(
     events: list[TelemetryEvent] = []
     now = host.clock.now()
 
-    # Spawn malicious process
-    proc = host.processes.spawn_process(
-        "svchost.exe", 4,  # masquerades as svchost
+    # Spawn malicious process (masquerades as svchost)
+    proc, spawn_evt = _spawn_and_emit(
+        host, "svchost.exe",
         "svchost.exe -k netsvcs -p -s Schedule",
-        now,
     )
-    events.append(ProcessEvent(
-        ts=now, pid=proc.pid, name=proc.name,
-        parent_pid=proc.parent_pid, command_line=proc.command_line,
-    ))
+    events.append(spawn_evt)
 
     # Disable Windows Defender via registry (ATT&CK T1562.001)
     host.registry.disable_defender(now)
@@ -415,11 +398,8 @@ def slow_sleeper(
         ("taskhostw.exe", "taskhostw.exe Execute"),
     ]
     name, cmd = legit_names[rng.randint(0, len(legit_names))]
-    proc = host.processes.spawn_process(name, 4, cmd, now)
-    events.append(ProcessEvent(
-        ts=now, pid=proc.pid, name=proc.name,
-        parent_pid=proc.parent_pid, command_line=proc.command_line,
-    ))
+    proc, spawn_evt = _spawn_and_emit(host, name, cmd)
+    events.append(spawn_evt)
 
     # Load suspicious DLL (forensic evidence for list_process_handles)
     host.processes.load_module(proc.pid, "beacon_x64.dll")
@@ -472,15 +452,11 @@ def exfil_first(
     events: list[TelemetryEvent] = []
     now = host.clock.now()
 
-    proc = host.processes.spawn_process(
-        "svchost.exe", 4,
+    proc, spawn_evt = _spawn_and_emit(
+        host, "svchost.exe",
         "svchost.exe -k NetworkService -p",
-        now,
     )
-    events.append(ProcessEvent(
-        ts=now, pid=proc.pid, name=proc.name,
-        parent_pid=proc.parent_pid, command_line=proc.command_line,
-    ))
+    events.append(spawn_evt)
 
     if progress < 0.6:
         # Exfiltration phase: large outbound transfers, no file changes
@@ -575,15 +551,11 @@ def semantic_shuffle(
     events: list[TelemetryEvent] = []
     now = host.clock.now()
 
-    proc = host.processes.spawn_process(
-        "conhost.exe", 4,
+    proc, spawn_evt = _spawn_and_emit(
+        host, "conhost.exe",
         "conhost.exe 0x4",
-        now,
     )
-    events.append(ProcessEvent(
-        ts=now, pid=proc.pid, name=proc.name,
-        parent_pid=proc.parent_pid, command_line=proc.command_line,
-    ))
+    events.append(spawn_evt)
 
     if progress < 0.1:
         return events, "reconnaissance"
@@ -644,3 +616,23 @@ def _find_process(host: HostState, name: str) -> ProcessRecord | None:
         if p and p.name.lower() == name.lower():
             return p
     return None
+
+
+def _spawn_and_emit(
+    host: HostState,
+    name: str,
+    cmd: str,
+    parent_pid: int = 4,
+) -> tuple[ProcessRecord, ProcessEvent]:
+    """Spawn a process and return (record, event) for the spawn.
+
+    Consolidates the 10+ call sites that shared this pattern across
+    benign and attack generators.
+    """
+    now = host.clock.now()
+    proc = host.processes.spawn_process(name, parent_pid, cmd, now)
+    event = ProcessEvent(
+        ts=now, pid=proc.pid, name=proc.name,
+        parent_pid=proc.parent_pid, command_line=proc.command_line,
+    )
+    return proc, event
