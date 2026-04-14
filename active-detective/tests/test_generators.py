@@ -98,31 +98,33 @@ class TestBrowserDownloads:
 
 
 class TestBackupOperations:
-    def test_touches_many_files(self, host):
+    def test_touches_modest_number_of_files(self, host):
+        """Post-Phase 6: backup touches 3-8 files (was 8-20) to avoid
+        teaching an inverted 'many events = benign' heuristic."""
         rng = np.random.RandomState(789)
         events = backup_operations(host, rng)
 
         file_events = [e for e in events if isinstance(e, FileEvent)]
-        assert len(file_events) >= 8  # high file count
+        assert 3 <= len(file_events) <= 9  # 3-8 reads + optional 1 archive write
 
     def test_zero_delta_reads(self, host):
         rng = np.random.RandomState(789)
         events = backup_operations(host, rng)
 
         file_events = [e for e in events if isinstance(e, FileEvent)]
-        # Most should be zero-delta reads (backup archive may have non-zero)
         zero_delta = [fe for fe in file_events
                       if fe.size_delta == 0 and fe.entropy_delta == 0.0]
-        assert len(zero_delta) >= 8
+        assert len(zero_delta) >= 3
 
 
 class TestAvScan:
-    def test_high_read_count(self, host):
+    def test_moderate_read_count(self, host):
+        """Post-Phase 6: av_scan touches 4-9 files (was 10-30)."""
         rng = np.random.RandomState(101)
         events = av_scan(host, rng)
 
         file_events = [e for e in events if isinstance(e, FileEvent)]
-        assert len(file_events) >= 10
+        assert 4 <= len(file_events) <= 10
 
     def test_no_modifications(self, host):
         rng = np.random.RandomState(101)

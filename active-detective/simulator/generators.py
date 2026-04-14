@@ -171,9 +171,13 @@ def backup_operations(
     )
     events.append(spawn_evt)
 
-    # Touch many files with zero-delta reads
+    # Touch a handful of files with zero-delta reads.
+    # Capped below 10 so backup activity doesn't dwarf sleeper-scale
+    # attacks (1-2 files/window) and teach the agent an inverted
+    # "many events = benign" heuristic. The false-positive-trap
+    # signature is still zero-delta reads, not sheer count.
     all_files = host.files.unencrypted_files()
-    n_touch = min(rng.randint(8, 20), len(all_files))
+    n_touch = min(rng.randint(3, 8), len(all_files))
     chosen = rng.choice(len(all_files), size=n_touch, replace=False)
 
     for idx in chosen:
@@ -219,7 +223,11 @@ def av_scan(
     events.append(spawn_evt)
 
     all_files = host.files.unencrypted_files()
-    n_scan = min(rng.randint(10, 30), len(all_files))
+    # Capped below 12 for the same reason as backup_operations: prevent
+    # an "event count → benign" heuristic from being trainable. Content
+    # signature (zero size_delta, no extension_change) remains the real
+    # cue vs. sleeper which mutates 1-2 files with entropy changes.
+    n_scan = min(rng.randint(4, 10), len(all_files))
     chosen = rng.choice(len(all_files), size=n_scan, replace=False)
 
     for idx in chosen:

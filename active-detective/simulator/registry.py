@@ -200,8 +200,19 @@ class FileRegistry:
         return record
 
     def list_directory(self, dir_path: str) -> list[FileRecord]:
-        """List files whose path starts with dir_path."""
-        # Normalize: ensure trailing separator
+        """List files directly under dir_path (non-recursive).
+
+        Subdirectories are excluded. Use list_directory_recursive() to
+        walk all files under the prefix.
+        """
+        normalized = dir_path.rstrip("/")
+        return [
+            r for p, r in self._files.items()
+            if os.path.dirname(p).rstrip("/") == normalized
+        ]
+
+    def list_directory_recursive(self, dir_path: str) -> list[FileRecord]:
+        """List all files recursively under dir_path (including subdirs)."""
         prefix = dir_path.rstrip("/") + "/"
         return [r for p, r in self._files.items() if p.startswith(prefix)]
 

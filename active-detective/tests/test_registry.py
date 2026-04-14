@@ -49,6 +49,28 @@ class TestFileRegistry:
     def test_list_directory_empty(self, registry):
         assert registry.list_directory("C:/Nonexistent") == []
 
+    def test_list_directory_non_recursive(self, registry):
+        """list_directory must NOT return files in subdirectories.
+
+        Phase 6: before the fix, list_directory used prefix match, so
+        list_directory("C:/Users/A") would return every file under
+        Documents, Desktop, etc. The agent could exploit this by
+        scanning "C:/" to dump the entire filesystem for -0.05 cost.
+        """
+        # Root "C:/" has only files directly in C:/, not subdirectories
+        root_files = registry.list_directory("C:/")
+        for f in root_files:
+            # No subdirectory slashes after "C:/"
+            tail = f.path[len("C:/"):]
+            assert "/" not in tail, f"recursive match leaked: {f.path}"
+
+    def test_list_directory_recursive_still_works(self, registry):
+        """The old recursive behavior is preserved via explicit API."""
+        recursive_root = registry.list_directory_recursive("C:/")
+        non_recursive_root = registry.list_directory("C:/")
+        # Recursive returns more (or equal) files than non-recursive
+        assert len(recursive_root) >= len(non_recursive_root)
+
     def test_directories(self, registry):
         dirs = registry.directories()
         assert "C:/Users/A/Documents" in dirs
