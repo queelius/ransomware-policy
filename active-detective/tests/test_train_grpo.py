@@ -289,41 +289,40 @@ class TestComputeEnvReward:
         r = _compute_env_reward(env)
         assert r <= -2.0
 
-    def test_efficiency_bonus(self):
+    def test_efficiency_bonus_removed(self):
+        """The reward redesign deliberately removed efficiency bonus to
+        avoid rewarding 'do nothing fast'. Steps taken shouldn't affect
+        the reward for a correct verdict."""
         env_fast = self._make_env("benign", False, "ignore", steps=1)
         env_slow = self._make_env("benign", False, "ignore", steps=5)
-        assert _compute_env_reward(env_fast) > _compute_env_reward(env_slow)
+        assert _compute_env_reward(env_fast) == _compute_env_reward(env_slow)
 
-    def test_action_cost_reduces_reward(self):
+    def test_action_cost_not_subtracted(self):
+        """The reward redesign removed action cost to stop penalizing
+        investigation. Tool costs are bookkept but don't reduce reward."""
         env_cheap = self._make_env("benign", False, "ignore", steps=1, cost=0.0)
         env_expensive = self._make_env("benign", False, "ignore", steps=1, cost=-0.1)
-        assert _compute_env_reward(env_cheap) > _compute_env_reward(env_expensive)
+        assert _compute_env_reward(env_cheap) == _compute_env_reward(env_expensive)
 
-    def test_k_max_from_env(self):
-        """_compute_env_reward should respect env._k_max, not hardcode 5."""
-        env = DetectionEnv(k_max=10)
-        env._ground_truth = GroundTruth(
-            scenario_type=ScenarioType.BENIGN,
-            is_ransomware=False,
-        )
-        env._verdict = "ignore"
-        env._steps = 1
-        env._cumulative_cost = 0.0
-        r = _compute_env_reward(env)
+    def test_reward_independent_of_k_max(self):
+        """After the reward redesign, k_max does not affect the verdict
+        reward (no efficiency bonus). It only controls the tool call budget
+        at rollout time."""
+        env10 = DetectionEnv(k_max=10)
+        env10._ground_truth = GroundTruth(
+            scenario_type=ScenarioType.BENIGN, is_ransomware=False)
+        env10._verdict = "ignore"
+        env10._steps = 1
+        env10._cumulative_cost = 0.0
 
-        # Compare against what k_max=5 would give
         env5 = DetectionEnv(k_max=5)
         env5._ground_truth = GroundTruth(
-            scenario_type=ScenarioType.BENIGN,
-            is_ransomware=False,
-        )
+            scenario_type=ScenarioType.BENIGN, is_ransomware=False)
         env5._verdict = "ignore"
         env5._steps = 1
         env5._cumulative_cost = 0.0
-        r5 = _compute_env_reward(env5)
 
-        # k_max=10 with 1 step should give more efficiency bonus than k_max=5
-        assert r > r5
+        assert _compute_env_reward(env10) == _compute_env_reward(env5)
 
 
 class TestDetectionReward:
