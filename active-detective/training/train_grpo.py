@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -418,28 +419,45 @@ def verdict_reward_func(completions: list[str], **kwargs) -> list[float]:
     return rewards
 
 
-def format_reward(completions: list[str], **kwargs) -> list[float]:
-    """Reward for well-formatted output (thinking + tool calls).
+_THINK_BLOCK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+_TOOL_CALL_BLOCK = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 
-    Separate reward function — TRL sums multiple reward functions.
+
+def format_reward(completions: list[str], **kwargs) -> list[float]:
+    """Reward for well-formatted output (thinking + valid tool calls).
+
+    Hardened against trivial hacks:
+    - Requires a well-formed <think>...</think> pair with non-empty body
+    - Requires a <tool_call>...</tool_call> pair whose body parses via
+      tools.parser.parse_tool_call
+
+    Separate reward function; TRL sums multiple reward functions.
     """
+    from environment.reward import (
+        FORMAT_THINKING_REWARD,
+        FORMAT_TOOL_CALL_REWARD,
+    )
+    from tools.parser import parse_tool_call
+
     rewards = []
     for completion in completions:
         content = completion
         if isinstance(completion, list):
-            # Conversational format
             content = completion[-1].get("content", "") if completion else ""
         elif isinstance(completion, dict):
             content = completion.get("content", "")
 
-        has_thinking = "<think>" in content
-        has_tool_call = "<tool_call>" in content
-
         score = 0.0
-        if has_thinking:
-            score += 0.05
-        if has_tool_call:
-            score += 0.05
+
+        # Thinking reward: any <think>...</think> with >= 3 non-whitespace chars
+        think_matches = _THINK_BLOCK.findall(content)
+        if any(len(m.strip()) >= 3 for m in think_matches):
+            score += FORMAT_THINKING_REWARD
+
+        # Tool-call reward: at least one <tool_call> body must parse
+        if _TOOL_CALL_BLOCK.search(content) and parse_tool_call(content) is not None:
+            score += FORMAT_TOOL_CALL_REWARD
+
         rewards.append(score)
     return rewards
 

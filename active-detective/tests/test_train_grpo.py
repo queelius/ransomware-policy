@@ -547,3 +547,82 @@ class TestToolNameEnum:
     def test_valid_verdicts_derived_from_verdict_enum(self):
         from tools.inspection import VALID_VERDICTS
         assert VALID_VERDICTS == {v.value for v in Verdict}
+
+
+# ── Phase 4 tests: env isolation ─────────────────────────────────────
+
+
+class TestEnvIsolation:
+    """Each reset() produces a fresh host so GRPO siblings don't share state."""
+
+    def _scenario_data(self, seed=42):
+        return json.dumps({
+            "scenario_type": "blitz",
+            "observability": 0.9,
+            "attack_progress": 0.7,
+            "seed": seed,
+            "n_history": 0,
+        })
+
+    def test_reset_produces_fresh_host_each_call(self):
+        env = DetectionEnv()
+        env.reset(scenario_data=self._scenario_data(seed=1))
+        host_1 = env._host
+        env.reset(scenario_data=self._scenario_data(seed=2))
+        host_2 = env._host
+        assert host_1 is not host_2
+
+    def test_reset_clears_prior_mutations(self):
+        env = DetectionEnv()
+        env.reset(scenario_data=self._scenario_data(seed=1))
+        env.check_process(4)
+        env.decide("alert", "suspect")
+        assert env._steps > 0
+        assert env._verdict == "alert"
+
+        env.reset(scenario_data=self._scenario_data(seed=1))
+        assert env._steps == 0
+        assert env._verdict is None
+        assert env._cumulative_cost == 0.0
+
+    def test_two_envs_do_not_share_host(self):
+        env_a = DetectionEnv()
+        env_b = DetectionEnv()
+        env_a.reset(scenario_data=self._scenario_data(seed=1))
+        env_b.reset(scenario_data=self._scenario_data(seed=1))
+        assert env_a._host is not env_b._host
+
+
+# ── Phase 7 tests: harden format_reward against hacking ──────────────
+
+
+class TestFormatRewardHardened:
+    """format_reward requires well-formed <think> + parseable <tool_call>.
+    Before hardening, emitting empty or malformed tags earned full reward.
+    """
+
+    def test_unclosed_think_not_rewarded(self):
+        rewards = format_reward(["<think>no closing tag here..."])
+        assert rewards[0] == 0.0
+
+    def test_empty_thinking_not_rewarded(self):
+        rewards = format_reward(["<think></think> <tool_call>x</tool_call>"])
+        assert rewards[0] < 0.1
+
+    def test_malformed_tool_call_not_rewarded(self):
+        rewards = format_reward([
+            "<think>analysis done</think> <tool_call>gibberish without parens</tool_call>"
+        ])
+        assert rewards[0] == 0.05
+
+    def test_well_formed_tool_call_rewarded(self):
+        rewards = format_reward([
+            '<think>quick analysis</think> <tool_call>{"name": "inspect_file", "arguments": {"path": "C:/x"}}</tool_call>'
+        ])
+        assert rewards[0] == 0.1
+
+    def test_function_call_format_rewarded(self):
+        rewards = format_reward([
+            '<think>check process</think> <tool_call>check_process(1234)</tool_call>'
+        ])
+        assert rewards[0] == 0.1
