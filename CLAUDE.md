@@ -43,6 +43,12 @@ accelerate launch -m training.train_grpo \
 
 # Run untrained agent (sanity check)
 python scripts/run_untrained.py
+
+# Evaluate against scenarios (results land in active-detective/results/*.jsonl)
+python scripts/run_eval_local.py        # local model checkpoint
+python scripts/run_eval_with_tools.py   # tool-enabled eval (TRL env)
+python scripts/run_eval_opus.py         # API-based comparison
+python scripts/compute_metrics.py results/<eval>.jsonl
 ```
 
 **Version note**: `requirements.txt` lists `transformers>=4.46.0` (sufficient for tests and development). Actual GPU training with Qwen3.5-9B needs `transformers>=5.2.0`, `trl>=0.16.0`, `peft>=0.15.0` — see `scripts/vastai_setup.sh` for exact training-time versions.
@@ -62,6 +68,18 @@ pip install -r fine-tuning/scripts/requirements_finetune.txt
 ```
 
 **Cross-module import**: `fine-tuning/scripts/prepare_training_data.py` imports from `prompting-only/telemetry/` via `sys.path.append('./telemetry')`. Run fine-tuning scripts from the `fine-tuning/` or `prompting-only/` directory context.
+
+### MCP server (Claude Code can drive the simulator)
+
+`active-detective/.mcp.json` auto-registers `mcp_server.py` as an MCP server named `detective`. From inside this repo, Claude Code can call the 9 investigation tools directly against a live `HostState`. Configure the scenario via env vars:
+
+```bash
+SCENARIO_SEED=42 SCENARIO_TYPE=blitz OBSERVABILITY=0.7 \
+  ATTACK_PROGRESS=0.5 K_MAX=5 TOOL_SET=full \
+  python active-detective/mcp_server.py
+```
+
+Useful for hand-driving rollouts during reward debugging. Tool subsets come from `evaluation/ablation.py::ABLATION_VARIANTS`.
 
 ## Active Detective Architecture
 
@@ -105,9 +123,13 @@ Events are stochastically dropped based on attack phase — initial compromise ~
 
 ## Current status and next priorities
 
-- Active Detective: Full pipeline implemented (408 tests), POMDP environment with frozen snapshots + multi-window history, host-coupled tool execution, synthetic file contents for forensics, ready for GPU training
-- Pre-training audit complete: fixed host state mismatch, dead history windows in training, weak efficiency signal (0.05/step), format_reward false positives, hardcoded k_max
-- Next: run GRPO training on Vast.ai (RTX A5000 or similar, ~24GB VRAM sufficient), evaluate against baselines, tool ablation study
+- Active Detective: GRPO+SFT trained with tool-use (TRL 0.29 `environment_factory`); 700-step checkpoints evaluated; baselines + Opus comparison runs in `active-detective/results/`
+- Pre-training audit complete (commits in `(phase1)`–`(phase9)`): host coupling unified, history windows wired through training, asymmetric reward redesigned, k_max budget enforced
+- Next: ablation study using `evaluation/ablation.py::ABLATION_VARIANTS` (15 tool-subset variants), expand eval to held-out scenario seeds
+
+## Commit convention
+
+Recent work follows `feat|fix|refactor|test(phaseN): ...` where N maps to a numbered task in `docs/plans/2026-04-13-comprehensive-pretraining-fixes.md`. Use this when reading `git log` to navigate the audit→fix sequence.
 
 ## Design docs
 

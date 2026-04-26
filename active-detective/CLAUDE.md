@@ -71,6 +71,12 @@ Defined in `tools/inspection.py`, `tools/network_tools.py`, `tools/forensic_tool
 
 The dual-format parser (`tools/parser.py`) handles Qwen3 JSON (`<tool_call>{"name": ..., "arguments": ...}</tool_call>`) and function-call fallback (`<tool_call>inspect_file("path")</tool_call>`).
 
+Default budget: `k_max = 5` steps (`environment/env.py:73`). Override via `RansomwareDetectionEnv(max_steps=...)` or env var `K_MAX` for the MCP server.
+
+## MCP server (live tool surface for Claude Code)
+
+`mcp_server.py` exposes the 9 investigation tools as an MCP server. Auto-registered via `.mcp.json` (server name: `detective`). Configure via env vars: `SCENARIO_SEED`, `SCENARIO_TYPE` (benign | blitz | sleeper | exfil_first | semantic_shuffle), `OBSERVABILITY`, `ATTACK_PROGRESS`, `K_MAX`, `TOOL_SET` (an `ABLATION_VARIANTS` key, or `no_tools`), `RESULTS_FILE` (append JSONL). `mcp_session.py` holds the per-rollout state.
+
 ## Reward: asymmetric, deterministic
 
 - Correct verdict: +1.0
